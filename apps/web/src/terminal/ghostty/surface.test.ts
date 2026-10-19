@@ -777,49 +777,54 @@ describe("GhosttyTerminalSurface visibility", () => {
     expect(readText).not.toHaveBeenCalled();
   });
 
-  it("pastes once per shortcut whichever of the clipboard read and native paste lands first", async () => {
+  function paste(surface: GhosttyTerminalSurface, text: string) {
+    surface.input.dispatchEvent(
+      Object.assign(new Event("paste", { cancelable: true }), {
+        clipboardData: { getData: () => text },
+      }),
+    );
+  }
+
+  it.each(["native", "clipboard"])("pastes once when %s arrives first", async (first) => {
     const harness = createHarness();
-    const readText = vi.fn(async () => "echo hi");
-    vi.stubGlobal("navigator", { platform: "MacIntel", clipboard: { readText } });
+    const read = Promise.resolve("echo hi");
+    vi.stubGlobal("navigator", {
+      platform: "MacIntel",
+      clipboard: { readText: () => read },
+    });
     const surface = await harness.create({ beforeKey: () => true });
-    const paste = (text: string) =>
-      surface.input.dispatchEvent(
-        Object.assign(new Event("paste", { cancelable: true }), {
-          clipboardData: { getData: () => text },
-        }),
-      );
-    const settleRead = async (reads: number) => {
-      expect(readText).toHaveBeenCalledTimes(reads);
-      await readText.mock.results[reads - 1]?.value;
-    };
 
-    // Read first (Chromium menu paste): the native paste that follows is dropped.
     key(surface, "v", "KeyV", { metaKey: true });
-    await settleRead(1);
-    paste("echo hi");
-    key(surface, "v", "KeyV", { metaKey: true }, "keyup");
-    expect(harness.onData).toHaveBeenCalledTimes(1);
+    if (first === "native") paste(surface, "echo hi");
+    await read;
+    if (first === "clipboard") paste(surface, "echo hi");
 
-    // Native first: the read that settles afterwards is dropped.
-    key(surface, "v", "KeyV", { metaKey: true });
-    paste("echo hi");
-    await settleRead(2);
-    key(surface, "v", "KeyV", { metaKey: true }, "keyup");
-    expect(harness.onData).toHaveBeenCalledTimes(2);
-
-    // A shortcut served only by the read must not swallow a later Edit → Paste
-    // of the same text, after the keyup or after a blur.
-    key(surface, "v", "KeyV", { metaKey: true });
-    await settleRead(3);
-    key(surface, "v", "KeyV", { metaKey: true }, "keyup");
-    paste("echo hi");
-    key(surface, "v", "KeyV", { metaKey: true });
-    await settleRead(4);
-    surface.input.dispatchEvent(new Event("blur"));
-    paste("echo hi");
-    expect(harness.onData).toHaveBeenCalledTimes(6);
-    expect(new Set(harness.onData.mock.calls.map(([data]) => data))).toEqual(new Set(["echo hi"]));
+    expect(harness.onData.mock.calls).toEqual([["echo hi"]]);
   });
+
+  it.each(["V keyup", "blur", "Meta keyup without V keyup"])(
+    "accepts a later identical menu paste after %s",
+    async (end) => {
+      const harness = createHarness();
+      const read = Promise.resolve("echo hi");
+      vi.stubGlobal("navigator", {
+        platform: "MacIntel",
+        clipboard: { readText: () => read },
+      });
+      const surface = await harness.create({ beforeKey: () => true });
+
+      key(surface, "v", "KeyV", { metaKey: true });
+      await read;
+      expect(harness.onData.mock.calls).toEqual([["echo hi"]]);
+      if (end === "blur") surface.input.dispatchEvent(new Event("blur"));
+      else if (end === "V keyup") key(surface, "v", "KeyV", { metaKey: true }, "keyup");
+      // macOS can omit V keyup while Command is held.
+      else key(surface, "Meta", "MetaLeft", {}, "keyup");
+      paste(surface, "echo hi");
+
+      expect(harness.onData.mock.calls).toEqual([["echo hi"], ["echo hi"]]);
+    },
+  );
 
   it("starts a selection when dragging from a link", async () => {
     const harness = createHarness();

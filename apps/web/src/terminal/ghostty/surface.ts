@@ -580,10 +580,8 @@ export class GhosttyTerminalSurface {
   private theme: GhosttyTheme;
   private readonly suppressedKeyCodes = new Set<string>();
   private pasteShortcutToken = 0;
-  // The paste shortcut whose native paste event may still arrive, and the text
-  // its clipboard read already sent ("" until then). Chromium can deliver that
-  // event after the read resolves, but before the shortcut key's keyup, so the
-  // gesture ends on that keyup, the next shortcut, blur, or the matching paste.
+  // Chromium can deliver native paste after the clipboard read resolves.
+  // Suppress its duplicate only for the current shortcut gesture.
   private pasteShortcutGesture: { code: string; readText: string } | null = null;
   private copyShortcutToken = 0;
   private clearSelectionAfterCopy = false;
@@ -1146,12 +1144,8 @@ export class GhosttyTerminalSurface {
       this.pasteShortcutGesture = gesture;
       const clipboard = navigator.clipboard;
       if (typeof clipboard?.readText === "function") {
-        // Race the async clipboard read against the browser's own paste event.
-        // The read covers browsers whose paste shortcut produces no paste
-        // event; not preventing the default keeps the native path alive when
-        // the read is denied. Whichever lands first wins: a native paste
-        // claims the token, and a read records its text on the gesture so
-        // onPaste drops the native paste that follows (Chromium menu paste).
+        // Keep native paste available if the read is denied. The token drops
+        // a late read; the gesture drops a native duplicate when the read wins.
         const token = ++this.pasteShortcutToken;
         void clipboard.readText().then(
           (text) => {
@@ -1176,7 +1170,15 @@ export class GhosttyTerminalSurface {
   };
 
   private readonly onKeyUp = (event: KeyboardEvent) => {
-    if (event.code === this.pasteShortcutGesture?.code) this.pasteShortcutGesture = null;
+    // macOS can omit V keyup while Command is held.
+    if (
+      event.code === this.pasteShortcutGesture?.code ||
+      event.key === "Meta" ||
+      event.key === "Control" ||
+      event.key === "Shift"
+    ) {
+      this.pasteShortcutGesture = null;
+    }
     if (this.suppressedKeyCodes.delete(event.code)) return;
     if (isTerminalCompositionKey(event, this.composing)) {
       return;
