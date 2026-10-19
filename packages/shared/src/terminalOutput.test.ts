@@ -119,6 +119,29 @@ describe("appendTerminalOutput edge cases from review", () => {
     expect(normalizeTerminalOutput("\u001b[38:2:0:255:0:0mR").text).toBe(red);
   });
 
+  const boldRed = { color: TERMINAL_PALETTES.dark[1], fontWeight: "600" } as const;
+  it.each([
+    [
+      "a curly underline",
+      "\u001b[1;31m\u001b[4:3mX",
+      { ...boldRed, textDecorationLine: "underline" },
+    ],
+    ["underline off in colon form", "\u001b[1;31m\u001b[4:0mX", boldRed],
+    ["a true-colour underline colour", "\u001b[1;31m\u001b[58;2;255;0;0mX", boldRed],
+    ["a 256-colour underline colour", "\u001b[58;5;31mX", null],
+    [
+      "a colon-form underline colour",
+      "\u001b[4m\u001b[58:2::255:0:0mX",
+      { textDecorationLine: "underline" },
+    ],
+  ])("reads %s without disturbing the other attributes", (_, input, style) => {
+    const text = normalizeTerminalOutput(input).text;
+    expect(terminalOutputSpans(text, TERMINAL_PALETTES.dark)).toEqual([{ text: "X", style }]);
+    for (let cut = 1; cut < input.length; cut += 1) {
+      expect(feed([input.slice(0, cut), input.slice(cut)]).text).toBe(text);
+    }
+  });
+
   it("clears only scrollback on ESC[3J", () => {
     const lines = Array.from({ length: 70 }, (_, index) => `line ${index}`).join("\n");
     const state = feed([lines, "\u001b[3J"]);
