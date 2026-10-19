@@ -418,6 +418,13 @@ describe("detectComposerTrigger", () => {
     },
   );
 
+  it.each(["It costs $5", "budget $9.99", "about €20", "raise $10k"])(
+    "does not detect a skill trigger for the amount in %j",
+    (text) => {
+      expect(detectComposerTrigger(text, text.length)).toBeNull();
+    },
+  );
+
   it("detects a pull request number at a token boundary", () => {
     const text = "Compare this with #8737";
 

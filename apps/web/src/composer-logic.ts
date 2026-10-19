@@ -4,7 +4,7 @@ import {
   serializeAssistantCitation,
   withAssistantCitationComment,
 } from "@t3tools/shared/assistantCitations";
-import { isPathWord } from "@t3tools/shared/composerTrigger";
+import { isCurrencyAmountQuery, isPathWord } from "@t3tools/shared/composerTrigger";
 import {
   splitPromptIntoComposerSegments,
   type ComposerPromptSegment,
@@ -282,6 +282,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   }
   const skillPrefix = /^\p{Sc}/u.exec(token);
   if (skillPrefix) {
+    if (isCurrencyAmountQuery(token.slice(skillPrefix[0].length))) return null;
     return {
       kind: "skill",
       query: token.slice(skillPrefix[0].length),
