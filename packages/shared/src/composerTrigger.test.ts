@@ -56,6 +56,7 @@ describe("detectComposerTrigger", () => {
   it.each([
     "It costs $5",
     "budget $9.99",
+    "only $.99",
     "about €20",
     "raise $10k",
     "$1,000",
