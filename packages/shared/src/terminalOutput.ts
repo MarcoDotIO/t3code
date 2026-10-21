@@ -320,7 +320,9 @@ function csiParams(params: string): Array<number> {
       continue;
     }
     if (sub[1] === 2 && sub.length >= 6) sub.splice(2, 1);
-    numbers.push(...sub);
+    // The group is one parameter, so fields past its mode's length must not
+    // leak out as SGR codes of their own. Indexed colour has no colour-space id.
+    numbers.push(...sub.slice(0, sub[1] === 5 ? 3 : sub[1] === 2 ? 5 : 2));
   }
   return numbers;
 }

@@ -97,6 +97,12 @@ describe("appendTerminalOutput edge cases from review", () => {
       "\u001b[4m\u001b[58:2::255:0:0mX",
       { textDecorationLine: "underline" },
     ],
+    ["extra fields in a colon-form indexed underline colour", "\u001b[58:5:0:32mX", null],
+    [
+      "extra fields in a colon-form indexed colour",
+      "\u001b[38:5:1:4mX",
+      { color: TERMINAL_PALETTES.dark[1] },
+    ],
   ])("reads %s without disturbing the other attributes", (_, input, style) => {
     const text = normalizeTerminalOutput(input).text;
     expect(terminalOutputSpans(text, TERMINAL_PALETTES.dark)).toEqual([{ text: "X", style }]);
