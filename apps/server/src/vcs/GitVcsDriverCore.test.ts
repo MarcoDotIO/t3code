@@ -3677,7 +3677,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       Effect.gen(function* () {
         // The pre-commit hook runs git, whose own children reuse child_id 0 in the shared trace.
         const { events, committed } = yield* commitWithHooks({
-          "pre-commit": "git -c alias.noop='!true' noop\nexit 0",
+          "pre-commit": "git -c alias.noop='!false' noop\nexit 0",
           "commit-msg": "exit 0",
         });
         assert.isTrue(committed);
