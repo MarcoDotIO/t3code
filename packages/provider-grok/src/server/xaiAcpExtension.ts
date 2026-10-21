@@ -275,7 +275,7 @@ export function isXAiMonitorTool(toolCall: AcpToolCallState): boolean {
  * while the process still runs. Like a monitor, it ends only with
  * `x.ai/task_completed` for that task id.
  */
-function xAiBackgroundShellTaskId(toolCall: AcpToolCallState): string | undefined {
+export function xAiBackgroundShellTaskId(toolCall: AcpToolCallState): string | undefined {
   const rawOutput = unknownRecord(toolCall.data.rawOutput);
   return nonEmptyString(rawOutput?.type) === "BackgroundTaskStarted"
     ? nonEmptyString(rawOutput?.task_id)
@@ -543,12 +543,12 @@ export const registerXAiSubagentFinished = (
     { discard: true },
   );
 
-export function isGenericAcpToolTitle(title: string | undefined): boolean {
+function isGenericAcpToolTitle(title: string | undefined): boolean {
   const key = (title ?? "").trim().toLowerCase();
   return key.length === 0 || key === "tool" || key === "tool call" || key === "terminal";
 }
 
-export function resolveXAiAcpToolTitle(toolCall: AcpToolCallState): string | undefined {
+function resolveXAiAcpToolTitle(toolCall: AcpToolCallState): string | undefined {
   if (!isGenericAcpToolTitle(toolCall.title)) {
     return nonEmptyString(toolCall.title);
   }
