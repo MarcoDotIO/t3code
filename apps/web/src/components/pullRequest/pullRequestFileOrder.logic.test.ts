@@ -119,6 +119,26 @@ describe("orderDiffFiles", () => {
     ]);
   });
 
+  it("pairs a test with the source whose name carries its own dotted suffix", () => {
+    expect(
+      order([
+        file("src/c.browser.test.tsx"),
+        file("src/b.test.ts"),
+        file("src/a.logic.test.ts"),
+        file("src/c.tsx"),
+        file("src/b.ts"),
+        file("src/a.logic.ts"),
+      ]),
+    ).toEqual([
+      "src/a.logic.ts",
+      "src/b.ts",
+      "src/c.tsx",
+      "src/a.logic.test.ts",
+      "src/b.test.ts",
+      "src/c.browser.test.tsx",
+    ]);
+  });
+
   it("orders the same diff the same way whatever order it arrives in", () => {
     const files = [
       file("src/a.ts", ['import { b } from "./b";']),
