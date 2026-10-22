@@ -5,6 +5,7 @@ import { DEFAULT_TERMINAL_ID } from "@t3tools/contracts";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 
 import {
+  basename,
   nextOpenTerminalId,
   previousLiveTerminalId,
   resolveProjectScriptTerminalId,
@@ -24,6 +25,19 @@ function makeMenuSession(input: {
     updatedAt: null,
   };
 }
+
+describe("basename", () => {
+  it("names the folder of a Windows working directory", () => {
+    expect(basename("C:\\Users\\me\\My Project")).toBe("My Project");
+    expect(basename("C:\\Users\\me\\My Project\\")).toBe("My Project");
+  });
+
+  it("names the folder of a POSIX working directory", () => {
+    expect(basename("/home/me/project/")).toBe("project");
+    expect(basename("/")).toBe("/");
+    expect(basename(null)).toBeNull();
+  });
+});
 
 describe("nextOpenTerminalId", () => {
   it("allocates separate terminals on repeated visits without readable metadata", () => {
