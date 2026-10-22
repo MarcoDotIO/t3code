@@ -57,8 +57,10 @@ export const withWorkspaceLease = Effect.fn("withWorkspaceLease")(function* <A, 
     candidate = parent;
   }
   return yield* Effect.uninterruptibleMask((restore) => {
+    const prefix = leasePath.endsWith(path.sep) ? leasePath : `${leasePath}${path.sep}`;
     const request: LeaseRequest = {
-      prefix: leasePath.endsWith(path.sep) ? leasePath : `${leasePath}${path.sep}`,
+      // Windows paths are case-insensitive and realPath keeps the caller's casing.
+      prefix: path.sep === "\\" ? prefix.toLowerCase() : prefix,
       granted: Deferred.makeUnsafe<void>(),
       held: false,
     };

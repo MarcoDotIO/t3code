@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - Effect's Path has no win32 implementation for the Windows lease test.
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -5,6 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as NodePath from "node:path";
 
 import { withWorkspaceLease } from "./workspaceLease.ts";
 
@@ -26,6 +28,24 @@ const testLayer = Layer.mergeAll(
     },
   }),
   Path.layer,
+);
+
+// Windows realPath resolves existing paths but keeps the caller's letter case.
+const windowsLayer = Layer.mergeAll(
+  FileSystem.layerNoop({
+    realPath: (path) =>
+      path.toLowerCase().startsWith("c:\\users\\me\\repo") &&
+      !path.toLowerCase().includes("packages")
+        ? Effect.succeed(path)
+        : missing.realPath(path),
+  }),
+  Layer.succeed(Path.Path)(
+    Path.make({
+      ...NodePath.win32,
+      fromFileUrl: () => Effect.die("unused"),
+      toFileUrl: () => Effect.die("unused"),
+    }),
+  ),
 );
 
 const holdLease = Effect.fn(function* (cwd: string) {
@@ -61,6 +81,20 @@ describe("withWorkspaceLease", () => {
       yield* Fiber.join(contender);
       assert.deepEqual(entered, [contenderPath]);
     }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("matches Windows paths that differ only in letter case", () =>
+    Effect.gen(function* () {
+      const entered: string[] = [];
+      const holder = yield* holdLease("C:\\Users\\me\\repo");
+      const contender = yield* enterLease("c:\\users\\me\\REPO\\packages", entered);
+      assert.deepEqual(entered, []);
+
+      yield* holder.release;
+      yield* Fiber.join(holder.fiber);
+      yield* Fiber.join(contender);
+      assert.deepEqual(entered, ["c:\\users\\me\\REPO\\packages"]);
+    }).pipe(Effect.provide(windowsLayer)),
   );
 
   it.effect("does not make a sibling sharing the path prefix wait", () =>
