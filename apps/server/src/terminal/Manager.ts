@@ -2851,9 +2851,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   });
 
   const openLocked = (input: TerminalOpenInput) =>
-    withWorkspaceLease(
-      path.resolve(input.worktreePath ?? input.cwd),
-      openWithWorkspaceLease(input),
+    withWorkspaceLease(input.worktreePath ?? input.cwd, openWithWorkspaceLease(input)).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
     );
 
   const open: TerminalManager["Service"]["open"] = (input) =>
@@ -3293,9 +3293,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       input.threadId,
       resolveLaunchInputEnvironment(input).pipe(
         Effect.flatMap((resolved) =>
-          withWorkspaceLease(
-            path.resolve(resolved.worktreePath ?? resolved.cwd),
-            restartResolved(resolved),
+          withWorkspaceLease(resolved.worktreePath ?? resolved.cwd, restartResolved(resolved)).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
           ),
         ),
       ),
