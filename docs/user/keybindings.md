@@ -19,7 +19,7 @@ or **Composer: Send and Start New Thread**. These bindings take priority over th
 send shortcut. Click the send button to use the configured follow-up behavior.
 
 When an active turn has queued messages, `mod+Shift+Enter` sends the first as a
-steer. Change it under **Queue: Send First Queued Message as Steer** in Keybindings.
+steer. Change it under **Queue: Send First Queued Message** in Keybindings.
 
 Use `mod+shift+m` to choose a model and `mod+shift+h` to choose a host.
 To step a new thread to the next machine instead of opening the menu, bind
@@ -109,8 +109,9 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `composerDraft`,
+`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`,
 `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`draftThreadRoute` is true in a new thread that has not been sent yet.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
