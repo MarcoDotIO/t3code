@@ -157,6 +157,47 @@ describe("extractTerminalLinks", () => {
     ]);
   });
 
+  it.each([
+    "redis://127.0.0.1:6379/0",
+    "postgres://app:secret@db.internal:5432/app",
+    "mongodb://localhost:27017/test",
+    "ws://localhost:3000/socket",
+    "s3://bucket/reports/today.csv",
+  ])("does not turn part of %s into a file link", (url) => {
+    expect(extractTerminalLinks(`connected to ${url}`)).toEqual([]);
+  });
+
+  it("keeps file links next to a non-web URL", () => {
+    const line = "src/db.ts:4 redis://localhost:6379/0 C:/app/src/db.ts:9";
+    expect(extractTerminalLinks(line)).toEqual([
+      { kind: "path", text: "src/db.ts:4", start: 0, end: 11 },
+      { kind: "path", text: "C:/app/src/db.ts:9", start: 37, end: 55 },
+    ]);
+  });
+
+  it.each([
+    [
+      "    at main (file:///Users/jane/app/src/index.mjs:3:7)",
+      "file:///Users/jane/app/src/index.mjs:3:7",
+      "/Users/jane/app/src/index.mjs:3:7",
+    ],
+    [
+      "open file:///Users/jane/My%20Reports/index.html",
+      "file:///Users/jane/My%20Reports/index.html",
+      "/Users/jane/My Reports/index.html",
+    ],
+    [
+      "at file:///C:/app/src/index.mjs:3:7",
+      "file:///C:/app/src/index.mjs:3:7",
+      "C:/app/src/index.mjs:3:7",
+    ],
+  ])("links the file a file URL names in %s", (line, url, text) => {
+    const start = line.indexOf(url);
+    expect(extractTerminalLinks(line)).toEqual([
+      { kind: "path", text, start, end: start + url.length },
+    ]);
+  });
+
   it("keeps a question mark inside a filesystem path", () => {
     const path = "/tmp/report?draft";
     expect(extractTerminalLinks(`wrote ${path}`)).toEqual([

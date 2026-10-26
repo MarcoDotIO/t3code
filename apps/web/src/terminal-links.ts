@@ -1,3 +1,6 @@
+import { parseFileUrlHref } from "@t3tools/shared/fileLinks";
+import { safeDecodeURIComponent } from "@t3tools/shared/markdownLinks";
+
 import { isMacPlatform } from "./lib/utils";
 
 export type TerminalLinkKind = "url" | "path";
@@ -27,6 +30,12 @@ export interface WrappedTerminalLinkLine {
 }
 
 const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
+// A URL's tail is not a file path even when it looks like one (`redis://host/0`,
+// `s3://bucket/key`); `file:` URLs link to the file they name instead. One-letter
+// schemes stay Windows drives, and the lookbehinds keep long letter runs from being
+// rescanned at every suffix.
+const SCHEME_URL_PATTERN = /(?<![A-Za-z\d+.-])[A-Za-z][A-Za-z\d+.-]+:\/\/[^\s"'`<>]+/gu;
+const FILE_URL_PATTERN = /(?<![A-Za-z\d+.-])file:\/\/[^\s"'`<>]+/giu;
 // Bare paths start only at a segment boundary: hover detection runs this on
 // every frame, so separator-free output must not be rescanned at every suffix.
 const FILE_PATH_PATTERN =
@@ -103,22 +112,48 @@ function collectMatches(
   return matches;
 }
 
-export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
-  const requestRoutes = Array.from(line.matchAll(REQUEST_ROUTE_PATTERN), (match) => ({
+function collectFileUrlMatches(line: string): TerminalLinkMatch[] {
+  const matches: TerminalLinkMatch[] = [];
+  for (const match of line.matchAll(FILE_URL_PATTERN)) {
+    const raw = trimClosingDelimiters(match[0], "path");
+    const target = parseFileUrlHref(raw);
+    if (target === null) continue;
+    matches.push({
+      kind: "path",
+      text: safeDecodeURIComponent(target.path),
+      start: match.index,
+      end: match.index + raw.length,
+    });
+  }
+  return matches;
+}
+
+function matchRanges(line: string, pattern: RegExp): Array<{ start: number; end: number }> {
+  return Array.from(line.matchAll(pattern), (match) => ({
     start: match.index,
     end: match.index + match[0].length,
   }));
+}
+
+export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
+  const nonPathRanges = [
+    ...matchRanges(line, REQUEST_ROUTE_PATTERN),
+    ...matchRanges(line, SCHEME_URL_PATTERN),
+  ];
   const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
+  const fileUrlMatches = collectFileUrlMatches(line);
   const quotedMatches = collectMatches(line, "path", QUOTED_FILE_PATH_PATTERN, urlMatches);
   const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, [
     ...urlMatches,
     ...quotedMatches,
   ]);
-  return [...urlMatches, ...quotedMatches, ...pathMatches]
-    .filter(
-      (match) => match.kind === "url" || !requestRoutes.some((route) => overlaps(match, route)),
-    )
-    .toSorted((a, b) => a.start - b.start);
+  return [
+    ...urlMatches,
+    ...fileUrlMatches,
+    ...[...quotedMatches, ...pathMatches].filter(
+      (match) => !nonPathRanges.some((range) => overlaps(match, range)),
+    ),
+  ].toSorted((a, b) => a.start - b.start);
 }
 
 export function isTerminalUrl(value: string): boolean {
