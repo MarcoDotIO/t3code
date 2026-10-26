@@ -128,8 +128,6 @@ function inferBrowser(userAgent: string | undefined): string | undefined {
     return undefined;
   }
   const normalized = userAgent.toLowerCase();
-  // Mobile builds name themselves with their own tokens (EdgA, EdgiOS, OPiOS,
-  // FxiOS) and still carry Chrome/ or Safari/, so check those first.
   if (/edg(?:e|a|ios)?\//.test(normalized)) return "Edge";
   if (/opr\/|opios\//.test(normalized)) return "Opera";
   if (/firefox\/|fxios\//.test(normalized)) return "Firefox";
