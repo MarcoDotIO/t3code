@@ -86,6 +86,7 @@ describe("mobile review state spelling", () => {
     expect(normalizedReviewState("approved")).toBe("APPROVED");
     expect(normalizedReviewState("CHANGES_REQUESTED")).toBe("CHANGES_REQUESTED");
     expect(normalizedReviewState("changes_requested")).toBe("CHANGES_REQUESTED");
+    expect(normalizedReviewState("changes-requested")).toBe("CHANGES_REQUESTED");
     expect(normalizedReviewState("commented")).toBe("COMMENTED");
     expect(normalizedReviewState(null)).toBeUndefined();
   });
