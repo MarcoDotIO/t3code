@@ -488,7 +488,7 @@ describe("auth scope options", () => {
 });
 
 describe("auth pairing create --base-url", () => {
-  it.effect.each(["192.168.1.5:3773", "localhost:3773"])(
+  it.effect.each(["192.168.1.5:3773", "localhost:3773", "ftp://localhost:3773"])(
     "rejects %s before issuing a token",
     (baseUrl) =>
       Effect.gen(function* () {
@@ -520,27 +520,29 @@ describe("auth pairing create --base-url", () => {
       }),
   );
 
-  it.effect("prints a pair URL on the given base URL", () =>
-    Effect.gen(function* () {
-      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-cli-base-url-test-"));
-      const output = yield* captureStdout(
-        runCli([
-          "auth",
-          "pairing",
-          "create",
-          "--base-dir",
-          baseDir,
-          "--base-url",
-          "http://192.168.1.5:3773",
-          "--json",
-        ]),
-      );
-      const issued = JSON.parse(output) as {
-        readonly credential: string;
-        readonly pairUrl: string;
-      };
+  it.effect.each(["http://192.168.1.5:3773", "https://example.com", "http:localhost:3773"])(
+    "prints a pair URL for %s",
+    (baseUrl) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-cli-base-url-test-"));
+        const output = yield* captureStdout(
+          runCli([
+            "auth",
+            "pairing",
+            "create",
+            "--base-dir",
+            baseDir,
+            "--base-url",
+            baseUrl,
+            "--json",
+          ]),
+        );
+        const issued = JSON.parse(output) as {
+          readonly credential: string;
+          readonly pairUrl: string;
+        };
 
-      assert.equal(issued.pairUrl, `http://192.168.1.5:3773/pair#token=${issued.credential}`);
-    }),
+        assert.equal(issued.pairUrl, `${new URL(baseUrl).origin}/pair#token=${issued.credential}`);
+      }),
   );
 });

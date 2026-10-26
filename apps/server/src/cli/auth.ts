@@ -68,18 +68,16 @@ const subjectFlag = Flag.String("subject").pipe(
   Flag.optional,
 );
 
-// URLFromString alone accepts `localhost:3773` (scheme `localhost:`), which cannot
-// resolve `/pair`.
-const HttpUrlFromString = Schema.URLFromString.pipe(
-  Schema.check(
-    Schema.makeFilter((url) => url.protocol === "http:" || url.protocol === "https:", {
-      expected: "an http:// or https:// URL",
-    }),
-  ),
-);
-
 const baseUrlFlag = Flag.String("base-url").pipe(
-  Flag.withSchema(HttpUrlFromString),
+  Flag.withSchema(
+    Schema.URLFromString.pipe(
+      Schema.check(
+        Schema.makeFilter((url) => url.protocol === "http:" || url.protocol === "https:", {
+          expected: "an http:// or https:// URL",
+        }),
+      ),
+    ),
+  ),
   Flag.withDescription("Optional public base URL used to print a ready `/pair#token=...` link."),
   Flag.optional,
 );
