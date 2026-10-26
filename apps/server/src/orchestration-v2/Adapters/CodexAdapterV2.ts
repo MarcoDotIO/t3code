@@ -583,7 +583,7 @@ function providerRequestKindFromPermissions(
   // special path, and is replacing them with `entries`.
   const requests = (access: "read" | "write") =>
     (permissions.fileSystem?.[access]?.length ?? 0) > 0 ||
-    (permissions.fileSystem?.entries ?? []).some((entry) => entry.access === access);
+    permissions.fileSystem?.entries?.some((entry) => entry.access === access);
   if (requests("write")) {
     return "file-change";
   }
