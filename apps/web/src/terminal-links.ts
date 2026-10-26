@@ -1,6 +1,3 @@
-import { parseFileUrlHref } from "@t3tools/shared/fileLinks";
-import { safeDecodeURIComponent } from "@t3tools/shared/markdownLinks";
-
 import { isMacPlatform } from "./lib/utils";
 
 export type TerminalLinkKind = "url" | "path";
@@ -31,11 +28,9 @@ export interface WrappedTerminalLinkLine {
 
 const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
 // A URL's tail is not a file path even when it looks like one (`redis://host/0`,
-// `s3://bucket/key`); `file:` URLs link to the file they name instead. One-letter
-// schemes stay Windows drives, and the lookbehinds keep long letter runs from being
-// rescanned at every suffix.
+// `s3://bucket/key`). One-letter schemes stay Windows drives, and the lookbehind
+// keeps long letter runs from being rescanned at every suffix.
 const SCHEME_URL_PATTERN = /(?<![A-Za-z\d+.-])[A-Za-z][A-Za-z\d+.-]+:\/\/[^\s"'`<>]+/gu;
-const FILE_URL_PATTERN = /(?<![A-Za-z\d+.-])file:\/\/[^\s"'`<>]+/giu;
 // Bare paths start only at a segment boundary: hover detection runs this on
 // every frame, so separator-free output must not be rescanned at every suffix.
 const FILE_PATH_PATTERN =
@@ -112,22 +107,6 @@ function collectMatches(
   return matches;
 }
 
-function collectFileUrlMatches(line: string): TerminalLinkMatch[] {
-  const matches: TerminalLinkMatch[] = [];
-  for (const match of line.matchAll(FILE_URL_PATTERN)) {
-    const raw = trimClosingDelimiters(match[0], "path");
-    const target = parseFileUrlHref(raw);
-    if (target === null) continue;
-    matches.push({
-      kind: "path",
-      text: safeDecodeURIComponent(target.path),
-      start: match.index,
-      end: match.index + raw.length,
-    });
-  }
-  return matches;
-}
-
 function matchRanges(line: string, pattern: RegExp): Array<{ start: number; end: number }> {
   return Array.from(line.matchAll(pattern), (match) => ({
     start: match.index,
@@ -141,7 +120,6 @@ export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
     ...matchRanges(line, SCHEME_URL_PATTERN),
   ];
   const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
-  const fileUrlMatches = collectFileUrlMatches(line);
   const quotedMatches = collectMatches(line, "path", QUOTED_FILE_PATH_PATTERN, urlMatches);
   const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, [
     ...urlMatches,
@@ -149,7 +127,6 @@ export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
   ]);
   return [
     ...urlMatches,
-    ...fileUrlMatches,
     ...[...quotedMatches, ...pathMatches].filter(
       (match) => !nonPathRanges.some((range) => overlaps(match, range)),
     ),

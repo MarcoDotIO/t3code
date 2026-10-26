@@ -175,27 +175,10 @@ describe("extractTerminalLinks", () => {
     ]);
   });
 
-  it.each([
-    [
-      "    at main (file:///Users/jane/app/src/index.mjs:3:7)",
-      "file:///Users/jane/app/src/index.mjs:3:7",
-      "/Users/jane/app/src/index.mjs:3:7",
-    ],
-    [
-      "open file:///Users/jane/My%20Reports/index.html",
-      "file:///Users/jane/My%20Reports/index.html",
-      "/Users/jane/My Reports/index.html",
-    ],
-    [
-      "at file:///C:/app/src/index.mjs:3:7",
-      "file:///C:/app/src/index.mjs:3:7",
-      "C:/app/src/index.mjs:3:7",
-    ],
-  ])("links the file a file URL names in %s", (line, url, text) => {
-    const start = line.indexOf(url);
-    expect(extractTerminalLinks(line)).toEqual([
-      { kind: "path", text, start, end: start + url.length },
-    ]);
+  it("does not link a mangled path out of a file URL", () => {
+    expect(extractTerminalLinks("    at main (file:///Users/jane/app/src/index.mjs:3:7)")).toEqual(
+      [],
+    );
   });
 
   it("keeps a question mark inside a filesystem path", () => {
