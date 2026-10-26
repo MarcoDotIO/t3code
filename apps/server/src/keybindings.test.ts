@@ -443,6 +443,51 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("removes a hand-written keybinding targeted by its settings spelling", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        {
+          key: "Shift+Cmd+R",
+          command: "script.run-tests.run",
+          when: "terminalFocus&&!previewFocus",
+        },
+        { key: "mod+shift+r", command: "script.run-tests.run" },
+      ]);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        return yield* keybindings.removeKeybindingRule({
+          key: "meta+shift+r",
+          command: "script.run-tests.run",
+          when: "terminalFocus && !previewFocus",
+        });
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, [{ key: "mod+shift+r", command: "script.run-tests.run" }]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("replaces a hand-written keybinding targeted by its settings spelling", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "escape", command: "script.run-tests.run", when: "a && b && c" },
+      ]);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings.Keybindings;
+        return yield* keybindings.upsertKeybindingRule({
+          key: "mod+alt+r",
+          command: "script.run-tests.run",
+          replace: { key: "esc", command: "script.run-tests.run", when: "(a && b) && c" },
+        });
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, [{ key: "mod+alt+r", command: "script.run-tests.run" }]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("refuses to overwrite malformed keybindings config", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
