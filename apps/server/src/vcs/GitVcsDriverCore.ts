@@ -629,9 +629,7 @@ const addCurrentSpanEvent =
     }),
   );
 
-// child_exit carries neither child_class nor hook_name, so exits are matched to hooks by this key.
-// Git processes a hook runs inherit GIT_TRACE2_EVENT and number their children from 0 too, so
-// child_id is only unique together with the per-process sid.
+// Nested Git processes share the trace file but reuse child IDs in their own sessions.
 function trace2ChildKey(record: Record<string, unknown>): string | null {
   const childId = record.child_id;
   if (typeof childId === "number" || typeof childId === "string") {
