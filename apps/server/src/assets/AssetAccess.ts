@@ -667,14 +667,10 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
           ? inlinePreviewMimeTypeForExtension(extension)
           : undefined;
       if (!isGenericFile) {
-        // openMediaFile refuses a non-canonical path, and the attachments
-        // directory can sit behind a symlink when the T3 home does.
-        const canonicalAttachmentPath = yield* fileSystem
-          .realPath(attachmentPath)
-          .pipe(Effect.orElseSucceed(() => null));
-        if (canonicalAttachmentPath !== null) {
-          imageDimensions = yield* readImageDimensionsFromHeader(canonicalAttachmentPath);
-        }
+        imageDimensions = yield* fileSystem.realPath(attachmentPath).pipe(
+          Effect.flatMap(readImageDimensionsFromHeader),
+          Effect.orElseSucceed(() => null),
+        );
       }
       claims = {
         version: 1,
