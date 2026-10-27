@@ -272,7 +272,6 @@ const resolveBaseDir = Effect.fn("dev-runner.resolveBaseDir")(function* (
   const path = yield* Path.Path;
   const configured = baseDir?.trim();
 
-  // Expand `~` as the server does for T3CODE_HOME; shells leave `--home-dir=~/x` and `.env` values alone.
   if (configured === "~") {
     return yield* HostProcess.HomeDirectory;
   }

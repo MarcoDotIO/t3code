@@ -435,6 +435,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(yield* homeFor("~/t3-dev"), path.join("/home/dev", "t3-dev"));
         assert.equal(yield* homeFor("~"), "/home/dev");
+        assert.equal(yield* homeFor("~\\t3-dev"), path.join("/home/dev", "t3-dev"));
+        assert.equal(yield* homeFor("  ~/t3-dev  "), path.join("/home/dev", "t3-dev"));
+        assert.equal(yield* homeFor("~someone/t3-dev"), path.resolve("~someone/t3-dev"));
+        assert.equal(yield* homeFor("relative/t3-dev"), path.resolve("relative/t3-dev"));
+        assert.equal(yield* homeFor("/tmp/t3-dev"), path.resolve("/tmp/t3-dev"));
       }),
     );
 
