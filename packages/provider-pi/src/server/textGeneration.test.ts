@@ -88,3 +88,32 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
     assert.isUndefined(pi.received.find((record) => record["type"] === "prompt"));
   }),
 );
+
+it.effect("applies the selected thinking level before prompting", () =>
+  Effect.gen(function* () {
+    const pi = yield* makeFakePi(JSON.stringify({ subject: "Update README", body: "" }));
+    const textGeneration = yield* makePiTextGeneration(
+      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] },
+      {},
+    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+
+    yield* textGeneration.generateCommitMessage({
+      cwd: process.cwd(),
+      branch: "main",
+      stagedSummary: "M README.md",
+      stagedPatch: "diff --git a/README.md b/README.md",
+      modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "demo/demo-model", [
+        { id: "thinking", value: "off" },
+      ]),
+    });
+
+    assert.deepEqual(
+      pi.received.map((record) => record["type"]),
+      ["set_model", "set_thinking_level", "prompt", "get_last_assistant_text"],
+    );
+    assert.equal(
+      pi.received.find((record) => record["type"] === "set_thinking_level")?.["level"],
+      "off",
+    );
+  }),
+);

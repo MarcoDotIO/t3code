@@ -5,11 +5,13 @@ import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { TextGenerationError } from "@t3tools/contracts";
+import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import type { PiSettings } from "../settings.ts";
 
 import { makePiRpcConnection, parsePiModelSlug } from "./rpc.ts";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
+import { isPiThinkingLevel } from "./thinkingCapabilities.ts";
 
 const PI_TIMEOUT_MS = 180_000;
 
@@ -76,6 +78,11 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
                 : error,
             ),
           );
+      }
+
+      const thinking = getModelSelectionStringOptionValue(modelSelection, "thinking");
+      if (thinking !== undefined && isPiThinkingLevel(thinking)) {
+        yield* connection.request({ type: "set_thinking_level", level: thinking });
       }
 
       yield* connection.request({ type: "prompt", message: prompt });
