@@ -19,6 +19,9 @@ const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(
 
 export function sanitizeBranchFragment(raw: string): string {
   const normalized = raw
+    // Fold accented letters to ASCII so "validación" keeps its "o" instead of splitting the word.
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
     .trim()
     .toLowerCase()
     .replace(/['"`]/g, "")
