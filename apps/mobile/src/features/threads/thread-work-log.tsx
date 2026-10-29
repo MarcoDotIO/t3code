@@ -91,6 +91,7 @@ import type { MarkdownImageRenderer } from "../../native/SelectableMarkdownText"
 import type { FilePreviewSource } from "../../components/FilePreviewModal";
 import { FilePreviewGallery } from "../../components/FilePreviewGallery";
 import { ThreadMarkdownImage } from "./ThreadMarkdownImage";
+import { FileChangeDiffText } from "./FileChangeDiffText";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -990,16 +991,20 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
       ? null
       : shownItem.type === "file_search" || shownItem.type === "web_search"
         ? turnItemOutputText(shownItem)
-        : fetchedItem
-          ? (turnItemOutputText(fetchedItem) ??
-            (outputImages.length > 0 || viewedImagePath ? null : "No output."))
-          : fetchedDetail.error
-            ? `Couldn't load output: ${fetchedDetail.error}`
-            : row.fetchesDetail
-              ? fetchedDetail.data
-                ? "Output is no longer available."
-                : "Loading output…"
-              : null;
+        : fetchedItem?.type === "file_change"
+          ? null
+          : fetchedItem
+            ? (turnItemOutputText(fetchedItem) ??
+              (outputImages.length > 0 || viewedImagePath ? null : "No output."))
+            : fetchedDetail.error
+              ? `Couldn't load output: ${fetchedDetail.error}`
+              : row.fetchesDetail
+                ? fetchedDetail.data
+                  ? "Output is no longer available."
+                  : shownItem.type === "file_change"
+                    ? "Loading diff…"
+                    : "Loading output…"
+                : null;
   const exitLine =
     failedExitCode === null ? null : (
       <Text className="mt-1.5 font-mono text-2xs leading-normal text-danger-foreground">
@@ -1249,6 +1254,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               >
                 {fetchedOutput}
               </Text>
+            ) : null}
+            {fetchedItem?.type === "file_change" && fetchedItem.status !== "failed" ? (
+              <FileChangeDiffText item={fetchedItem} />
             ) : null}
             {streamsOutput ? null : exitLine}
           </ScrollView>
