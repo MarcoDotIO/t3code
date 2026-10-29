@@ -1,9 +1,14 @@
+import * as NodeOS from "node:os";
+import * as NodeURL from "node:url";
+
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as OpenCode2AdapterV2Testkit from "../orchestration-v2/Adapters/OpenCode2AdapterV2.testkit.ts";
 import * as OpenCode2Server from "@t3tools/provider-opencode/server/v2/OpenCode2Server";
@@ -34,6 +39,55 @@ it.layer(layer)("OpenCode2TextGeneration", (it) => {
         },
       });
       assert.equal(title.title, "Fix OAuth Login Redirect Loop");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("sends image attachments as file URLs that round-trip to their paths", () =>
+    Effect.gen(function* () {
+      // `#` would start a URL fragment if the path were pasted after `file://`.
+      const path = yield* Path.Path;
+      const imagePath = path.join(NodeOS.tmpdir(), "T3 #1", "attachments", "bug.png");
+      const prompts: Array<unknown> = [];
+      const server = yield* OpenCode2AdapterV2Testkit.replayServer(
+        {
+          provider: "opencode",
+          protocol: OpenCode2AdapterV2Testkit.OPENCODE2_HTTP_PROTOCOL,
+          version: "2.0.18",
+          scenario: "opencode2_title_generation_image",
+          entries: [...OPENCODE2_TITLE_GENERATION, { type: "runtime_exit", status: "success" }],
+        },
+        { onPrompt: (input) => prompts.push(input) },
+      );
+      const host = yield* ProviderHost.ProviderHost;
+      const textGeneration = yield* OpenCode2TextGeneration.make().pipe(
+        Effect.provideService(OpenCode2Server.OpenCode2Server, server),
+        Effect.provideService(ProviderHost.ProviderHost, {
+          ...host,
+          resolveAttachmentPath: () => imagePath,
+        }),
+      );
+      yield* textGeneration.generateThreadTitle({
+        cwd: process.cwd(),
+        message: "fix the login redirect loop after oauth",
+        attachments: [
+          {
+            type: "image",
+            id: "thread-1-image",
+            name: "bug.png",
+            mimeType: "image/png",
+            sizeBytes: 5,
+          },
+        ],
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("opencode"),
+          model: "opencode/big-pickle",
+        },
+      });
+      const prompt = prompts[0] as { readonly files?: ReadonlyArray<{ readonly uri: string }> };
+      assert.deepEqual(
+        prompt.files?.map((file) => NodeURL.fileURLToPath(file.uri)),
+        [imagePath],
+      );
     }).pipe(Effect.scoped),
   );
 

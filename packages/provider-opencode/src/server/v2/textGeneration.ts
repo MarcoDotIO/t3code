@@ -1,4 +1,6 @@
 // Generate endpoints return 403 on the free tier; use and remove a temporary prompt session.
+import * as NodeURL from "node:url";
+
 import { AbsolutePath, Location, Model, Provider, Session } from "@opencode/client/effect";
 import { TextGenerationError } from "@t3tools/contracts";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -131,7 +133,7 @@ const runOnServer = Effect.fn("Opencode2TextGeneration.runOnServer")(function* (
   const images = (input.attachments ?? []).flatMap((attachment) => {
     if (attachment.type !== "image") return [];
     const path = resolveAttachmentPath(attachment);
-    return path === null ? [] : [{ uri: `file://${path}`, name: attachment.name }];
+    return path === null ? [] : [{ uri: NodeURL.pathToFileURL(path).href, name: attachment.name }];
   });
   yield* client.session.prompt({
     sessionID: session.id,
