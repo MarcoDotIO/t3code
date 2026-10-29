@@ -91,6 +91,9 @@ describe("GitHub change request URLs", () => {
     expect(candidate("https://code.github.example.com/acme/web/issues/42")).toBe(
       "https://code.github.example.com/acme/web/pull/42",
     );
+    expect(candidate("https://acme.ghe.com/acme/web/issues/42")).toBe(
+      "https://acme.ghe.com/acme/web/pull/42",
+    );
     expect(candidate("https://github.com/pingdotgg/t3code/issues/not-a-number")).toBeNull();
     expect(candidate("https://code.example.test/acme/web/issues/42")).toBeNull();
   });

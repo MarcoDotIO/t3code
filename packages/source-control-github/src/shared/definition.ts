@@ -26,11 +26,10 @@ const ISSUE_PATH = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u;
 
 const KIND = SourceControlProviderKind.make("github");
 
+// `*.ghe.com` is GitHub Enterprise Cloud with data residency, one subdomain per enterprise.
 function isGitHubHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  return (
-    host === "github.com" || host.endsWith(".github.com") || host.split(".").includes("github")
-  );
+  return host === "github.com" || host.endsWith(".ghe.com") || host.split(".").includes("github");
 }
 
 function isRepositoryPath(repository: string): boolean {
@@ -131,11 +130,8 @@ export const definition = defineSourceControl({
   isChangeRequestReference: (url) => CHANGE_REQUEST_REFERENCE.test(url),
   checkoutChangeRequestHost: (identity) => projectChangeRequestHost(identity, KIND),
   changeRequestHeadRef: (number) => `refs/pull/${number}/head`,
-  // `*.ghe.com` is GitHub Enterprise Cloud with data residency, one subdomain per enterprise.
   recognizeRemote: ({ host, hostname }) =>
-    hostname === "github.com" ||
-    hostname.endsWith(".ghe.com") ||
-    hostname.split(".").includes("github")
+    isGitHubHost(hostname)
       ? {
           kind: KIND,
           name: hostname === "github.com" ? "GitHub" : "GitHub Self-Hosted",
