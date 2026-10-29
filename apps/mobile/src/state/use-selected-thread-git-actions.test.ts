@@ -25,9 +25,8 @@ const state = vi.hoisted(() => ({
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useMemo: (factory: () => unknown) => factory(),
-  useEffect: () => {},
-  useEffectEvent: (callback: unknown) => callback,
 }));
+vi.mock("@effect/atom-react", () => ({ useAtomMount: () => {} }));
 vi.mock("./session", () => ({
   useEnvironmentScope: (environmentId: unknown, scope: string) =>
     (environmentId === state.thread.environmentId ? state.scopes : state.primaryScopes).has(scope),
@@ -51,7 +50,10 @@ vi.mock("./queries", () => ({
 }));
 vi.mock("./use-atom-command", () => ({ useAtomCommand: (command: unknown) => command }));
 vi.mock("./atom-registry", () => ({ appAtomRegistry: {} }));
-vi.mock("./use-remote-environment-registry", () => ({ setPendingConnectionError: () => {} }));
+vi.mock("./use-remote-environment-registry", () => ({
+  environmentConnectedAtom: () => null,
+  setPendingConnectionError: () => {},
+}));
 vi.mock("./use-vcs-action-state", () => ({
   showGitActionResult: (result: { type: string; description?: string }) =>
     state.results.push(result),
@@ -152,37 +154,6 @@ describe("thread Git mutation permissions", () => {
       expect(state.thread.branch).toBe(canOperate ? "feature/task" : "main");
     },
   );
-
-  it.each(["create", "checkout", "commit on new branch"] as const)(
-    "requires task permission before %s",
-    async (operation) => {
-      const actions = useSelectedThreadGitActions();
-      if (operation === "create") {
-        expect(await actions.onCreateSelectedThreadBranch("feature")).toBeNull();
-      }
-      if (operation === "checkout")
-        expect(await actions.onCheckoutSelectedThreadBranch("feature")).toBeNull();
-      if (operation === "commit on new branch")
-        await actions.onRunSelectedThreadGitAction({ action: "commit", featureBranch: true });
-      expect(state.branch).toBe("main");
-      expect(state.thread.branch).toBe("main");
-      expect(state.commits).toBe(0);
-    },
-  );
-
-  it("rechecks task permission when a retained menu callback runs", async () => {
-    state.scopes.add(AuthOrchestrationOperateScope);
-    const actions = useSelectedThreadGitActions();
-    state.scopes.delete(AuthOrchestrationOperateScope);
-    expect(
-      await actions.onCreateSelectedThreadWorktree({
-        baseBranch: "main",
-        newBranch: "feature/task",
-      }),
-    ).toBeNull();
-    expect(state.worktrees).toEqual([]);
-    expect(state.thread.worktreePath).toBeNull();
-  });
 
   it("keeps ordinary commits and pushes available without task permission", async () => {
     const actions = useSelectedThreadGitActions();

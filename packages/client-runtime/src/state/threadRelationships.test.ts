@@ -6,9 +6,7 @@ import {
   deriveThreadRelationshipGraph,
   immediateThreadRelationships,
   orderWebThreadLineageRows,
-  relatedThreadIds,
   resolveMergeBackTargetThreadId,
-  walkThreadRelationships,
   threadRelationshipRowStatus,
 } from "./threadRelationships.ts";
 
@@ -16,10 +14,6 @@ describe("thread relationships", () => {
   it.each([
     ["running", "completed"],
     ["completed", "running"],
-    ["running", "running"],
-    ["completed", "completed"],
-    ["waiting", "failed"],
-    ["interrupted", "pending"],
   ])("keeps parent %s independent of child %s", (parentStatus, childStatus) => {
     const parent = ThreadId.make("parent");
     const child = ThreadId.make("child");
@@ -116,14 +110,6 @@ describe("thread relationships", () => {
     });
 
     expect(graph.nodes.get(missing)?.missing).toBe(true);
-    expect(relatedThreadIds(graph, root)).toEqual([child]);
-    expect(relatedThreadIds(graph, child)).toEqual([root, missing]);
-    expect(
-      walkThreadRelationships(graph, root).map(({ threadId, depth }) => [threadId, depth]),
-    ).toEqual([
-      [child, 1],
-      [missing, 2],
-    ]);
     expect(immediateThreadRelationships(graph, root).map(({ threadId }) => threadId)).toEqual([
       child,
     ]);

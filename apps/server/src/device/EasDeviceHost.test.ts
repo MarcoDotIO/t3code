@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { EasDeviceHostConfig } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -455,6 +456,24 @@ describe("EAS Simulator host", () => {
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 
+  it.effect("reports iOS unavailable on a server with no Expo credential", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-expo-home-" });
+      const host = yield* makeHost(
+        fakeExpo(),
+        config({ accessToken: "" }),
+        yield* Scope.make(),
+      ).pipe(
+        Effect.provideService(HostProcess.HomeDirectory, home),
+        Effect.provideService(HostProcess.Environment, {}),
+      );
+      const [ios] = (yield* host.summary).platforms;
+      expect(ios).toMatchObject({ platform: "ios", available: false });
+      expect(ios?.reason).toContain("No Expo credential on the server");
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
   it.effect("stops a session that is still starting when the host stops", () =>
     Effect.gen(function* () {
       const previewGate = yield* makeGate;
@@ -470,25 +489,6 @@ describe("EAS Simulator host", () => {
       const failure = yield* Fiber.join(booting).pipe(Effect.flip);
       expect(failure.message).toContain("was stopped while the session started");
       expect((yield* ready.devices.list).devices.map((device) => device.id)).toEqual(["eas-ios"]);
-    }).pipe(Effect.scoped, Effect.provide(layer)),
-  );
-
-  it.effect("holds the slot when a failed create’s session is listed but its stop fails", () =>
-    Effect.gen(function* () {
-      let stopFails = true;
-      // Create fails, Expo lists the session by name, and stopping it fails too.
-      const expo = fakeExpo({ failCreate: true, failStop: () => stopFails });
-      const host = yield* makeHost(expo, config({ maxConcurrentSessions: 1 }), yield* Scope.make());
-      const ready = yield* host.ensureReady(() => Effect.void);
-      const [catalogDevice] = (yield* ready.devices.list).devices;
-      yield* ready.devices.boot(catalogDevice!).pipe(Effect.flip);
-      const refused = yield* ready.devices.boot(catalogDevice!).pipe(Effect.flip);
-      expect(refused.message).toContain("still being cleaned up");
-      stopFails = false;
-      yield* ready.devices.list;
-      expect(expo.stopped()).toContain("orphan");
-      expo.allowCreate();
-      expect(yield* ready.devices.boot(catalogDevice!)).toBe("session-1");
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 });

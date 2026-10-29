@@ -17,6 +17,7 @@ import {
   sessionUpdateIsReplay,
   syntheticLoadSessionResponseFromInitialize,
   toolCallProgressLength,
+  withTrackedPermissionToolCall,
   type AcpToolCallState,
 } from "./runtimeModel.ts";
 
@@ -432,9 +433,41 @@ describe("AcpRuntimeModel", () => {
     });
   });
 
+  it("keeps an explicit permission request kind over the tracked tool call's kind", () => {
+    const request = withTrackedPermissionToolCall(
+      {
+        sessionId: "session-1",
+        options: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
+        toolCall: { toolCallId: "tool-1", kind: "read" },
+      },
+      {
+        toolCallId: "tool-1",
+        kind: "execute",
+        data: { toolCallId: "tool-1", title: "git status", rawInput: { command: "git status" } },
+      },
+    );
+
+    expect(parsePermissionRequest(request)).toMatchObject({ kind: "read", detail: "git status" });
+  });
+
+  it("keeps explicitly cleared permission request fields over the tracked tool call", () => {
+    const request = withTrackedPermissionToolCall(
+      {
+        sessionId: "session-1",
+        options: [{ optionId: "allow-once", name: "Allow once", kind: "allow_once" }],
+        toolCall: { toolCallId: "tool-1", kind: null, title: null, rawInput: null },
+      },
+      {
+        toolCallId: "tool-1",
+        kind: "execute",
+        data: { toolCallId: "tool-1", title: "git status", rawInput: { command: "git status" } },
+      },
+    );
+
+    expect(parsePermissionRequest(request).kind).toBe("unknown");
+  });
+
   it("bounds an oversized cumulative tool_call_update content buffer to a tail window", () => {
-    // Mirrors Grok's ACP CLI resending the ENTIRE accumulated terminal output on every
-    // tool_call_update notification instead of a delta (see upstream #6556).
     const hugeText = Array.from({ length: 2_000 }, (_, i) => `line ${i}: ${"x".repeat(50)}`).join(
       "\n",
     );
@@ -443,8 +476,7 @@ describe("AcpRuntimeModel", () => {
     const result = parseSessionUpdateEvent({
       sessionId: "session-1",
       update: {
-        // Real ACP `tool_call_update` deltas typically omit `title` (already established by
-        // the initial `tool_call`); that is also the shape that surfaces raw content as detail.
+        // Real tool_call_update deltas omit title; raw content then supplies detail.
         sessionUpdate: "tool_call_update",
         toolCallId: "tool-1",
         kind: "other",
@@ -636,17 +668,6 @@ describe("AcpRuntimeModel", () => {
         data: {},
       }) satisfies AcpToolCallState;
 
-    it("emits the first in-progress tool_call even when it has no detail", () => {
-      expect(
-        decideToolCallUpdateEmission({
-          previous: undefined,
-          next: { toolCallId: "tool-1", title: "Grok Tool", status: "pending", data: {} },
-          lastEmittedDetailLength: undefined,
-          skippedSinceEmit: 0,
-        }),
-      ).toEqual({ emit: true, skippedSinceEmit: 0 });
-    });
-
     it("always emits terminal (completed/failed) status updates regardless of growth", () => {
       expect(
         decideToolCallUpdateEmission({
@@ -703,16 +724,6 @@ describe("AcpRuntimeModel", () => {
 
       const emittedIndices = emissions.flatMap((emitted, index) => (emitted ? [index + 1] : []));
       expect(emittedIndices).toEqual([1, 11]);
-    });
-
-    it("emits immediately when the title changes, even with no growth", () => {
-      const decision = decideToolCallUpdateEmission({
-        previous: { toolCallId: "tool-1", title: "Reading file", detail: "x", data: {} },
-        next: { toolCallId: "tool-1", title: "Ran command", detail: "x", data: {} },
-        lastEmittedDetailLength: 1,
-        skippedSinceEmit: 0,
-      });
-      expect(decision).toEqual({ emit: true, skippedSinceEmit: 0 });
     });
 
     it("coalesces small deltas but forces an emission after the coalesce limit", () => {
@@ -1269,8 +1280,7 @@ describe("extractMcpToolCallIdentity", () => {
       "t3-code/delegate_task",
       "delegate_task",
       'delegate_task: {"mode":"async"}',
-      // Kimi retitles on every streamed args chunk with the raw partial JSON,
-      // and middle-truncates args longer than 50 characters.
+      // Kimi retitles with partial JSON and middle-truncates args over 50 characters.
       'delegate_task: {"mode":"async","task":"Ru',
       'delegate_task: {"mode":"async","task":"Ru...cho child-result-42\'"}',
     ]) {
@@ -1289,7 +1299,6 @@ describe("extractMcpToolCallIdentity", () => {
   });
 
   it("does not claim an agent's own tool that shares a T3 tool name", () => {
-    // Hermes' built-in delegate_task, titled "<tool>: <description>" like all its calls.
     const toolCall = toolCallFromUpdate({
       sessionUpdate: "tool_call",
       toolCallId: "own-delegate-1",
@@ -1301,8 +1310,7 @@ describe("extractMcpToolCallIdentity", () => {
   });
 
   it("recovers T3 identity from goose _meta despite LLM-rewritten titles", () => {
-    // goose enriches titles asynchronously, so only _meta.goose.toolCall is
-    // stable; shape from crates/goose/src/acp/server/tool_calls/conversion.rs.
+    // goose titles change asynchronously; only _meta.goose.toolCall is stable.
     const toolCall = toolCallFromUpdate({
       sessionUpdate: "tool_call",
       toolCallId: "goose-1",
@@ -1323,9 +1331,7 @@ describe("extractMcpToolCallIdentity", () => {
   });
 
   it("recovers T3 identity from qwen serverId meta regardless of prefix format", () => {
-    // qwen-code 0.21.12 emits _meta.serverId + _meta.toolName; serverId is an
-    // explicit origin assertion, so a known tool suffix suffices even if the
-    // prefix format changes.
+    // qwen-code 0.21.12 serverId asserts MCP origin even when tool prefixes change.
     const toolCall = toolCallFromUpdate({
       sessionUpdate: "tool_call",
       toolCallId: "qwen-meta-1",

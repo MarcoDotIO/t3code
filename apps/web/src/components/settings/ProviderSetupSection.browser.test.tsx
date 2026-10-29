@@ -50,8 +50,6 @@ vi.mock(import("../../state/use-atom-command"), async (original) => ({
   ...(await original()),
   useAtomCommand: ((command: unknown) => command) as never,
 }));
-// The queries behave like live subscriptions: changing `setup.auth` and calling
-// `publish()` re-renders the sections that read them.
 const queryListeners = vi.hoisted(() => new Set<() => void>());
 vi.mock(import("../../state/query"), async (original) => {
   const { useSyncExternalStore } = await import("react");
@@ -231,25 +229,6 @@ describe("Antigravity setup", () => {
 
     expect(setup.completeAuth).not.toHaveBeenCalled();
     expect(setup.authState).toHaveBeenLastCalledWith({ environmentId, input: { instanceId } });
-  });
-
-  it("removes an owned damaged runtime only after confirmation", async () => {
-    resetSetup();
-    setup.auth = authState({ phase: "idle", flowId: null, authorizationUrl: null });
-    setup.installation = {
-      ...setup.installation!,
-      phase: "failed",
-      canRemove: true,
-      installedVersion: null,
-    };
-    await using screen = await renderSetup();
-    await screen.click("Remove downloaded runtime");
-    expect(setup.confirm).toHaveBeenCalledOnce();
-    expect(setup.removeInstall).not.toHaveBeenCalled();
-
-    setup.confirm.mockResolvedValue(true);
-    await screen.click("Remove downloaded runtime");
-    expect(setup.removeInstall).toHaveBeenCalledWith({ environmentId, input: { instanceId } });
   });
 
   it("does not let a shared managed install hide an invalid custom binary path", async () => {

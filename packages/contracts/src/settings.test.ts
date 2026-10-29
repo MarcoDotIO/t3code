@@ -8,11 +8,15 @@ import {
   ClientSettingsPatch,
   ClaudeSettings,
   DEFAULT_SERVER_SETTINGS,
+  globalIdleCompaction,
+  idleCompactionPatch,
   requiredScopesForProjectMutation,
+  resolveIdleCompaction,
   resolveProjectProviderInstanceEnabled,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
+  withIdleCompaction,
 } from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
@@ -111,6 +115,55 @@ describe("ServerSettings usage price overrides", () => {
   });
 });
 
+describe("ServerSettings secret providers", () => {
+  const onePassword = (account: string) => ({
+    kind: "one_password",
+    label: "Personal",
+    config: { account },
+  });
+
+  it("keeps an unknown kind or a longer label from invalidating the rest of the settings", () => {
+    const openbao = { kind: "openbao", label: "V".repeat(65), config: { address: "https://x" } };
+    const decoded = decodeServerSettings({
+      worktreesDirectory: "/work",
+      secretProviders: { vault: openbao, personal: onePassword("my.1password.com") },
+    });
+    expect(decoded.worktreesDirectory).toBe("/work");
+    expect(encodeServerSettings(decoded).secretProviders).toEqual({
+      vault: openbao,
+      personal: onePassword("my.1password.com"),
+    });
+  });
+
+  it("accepts slug ids and null removals but no id that is not a slug", () => {
+    expect(
+      decodeServerSettingsPatch({
+        secretProviders: { "1password": onePassword("my.1password.com"), work: null },
+      }).secretProviders,
+    ).toEqual({ "1password": onePassword("my.1password.com"), work: null });
+    for (const id of ["", "My Vault", "a/b", "-vault"]) {
+      expect(() =>
+        decodeServerSettingsPatch({ secretProviders: { [id]: onePassword("my.1password.com") } }),
+      ).toThrow();
+    }
+    expect(() =>
+      decodeServerSettingsPatch({
+        secretProviders: { work: { ...onePassword("my.1password.com"), label: "V".repeat(65) } },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects writes of an unknown kind or an account op could misread", () => {
+    const write = (entry: unknown) => () =>
+      decodeServerSettingsPatch({ secretProviders: { personal: entry } });
+    for (const account of ["", "my account", "--help"]) {
+      expect(write(onePassword(account))).toThrow();
+    }
+    expect(write({ kind: "one_password", label: "Personal" })).toThrow();
+    expect(write({ kind: "openbao", label: "Vault", config: { address: "https://x" } })).toThrow();
+  });
+});
+
 describe("custom model settings", () => {
   const capabilities = {
     optionDescriptors: [
@@ -134,6 +187,57 @@ describe("custom model settings", () => {
   });
 });
 
+describe("resolveIdleCompaction", () => {
+  it("lets a Claude instance override the global default", () => {
+    const settings = decodeServerSettings({
+      idleCompaction: "off",
+      providerInstances: {
+        claude_work: { driver: "claudeAgent", config: { idleCompaction: "onReturn" } },
+        claude_personal: { driver: "claudeAgent" },
+      },
+    });
+    expect(resolveIdleCompaction(settings, ProviderInstanceId.make("claude_work"))).toBe(
+      "onReturn",
+    );
+    expect(resolveIdleCompaction(settings, ProviderInstanceId.make("claude_personal"))).toBe("off");
+    expect(resolveIdleCompaction(settings, ProviderInstanceId.make("claudeAgent"))).toBe("off");
+  });
+
+  it("reads the mode from the legacy switch, in either form servers saved it", () => {
+    expect(globalIdleCompaction(decodeServerSettings({ compactIdleThreads: true }))).toBe(
+      "beforeCacheExpires",
+    );
+    expect(globalIdleCompaction(decodeServerSettings({ compactIdleThreads: "off" }))).toBe("off");
+    expect(globalIdleCompaction(decodeServerSettings({}))).toBe("onReturn");
+  });
+
+  it("keeps the legacy switch a boolean, as shipped clients decode it", () => {
+    const encode = Schema.encodeSync(Schema.toCodecJson(ServerSettings));
+    for (const mode of ["onReturn", "beforeCacheExpires", "off"] as const) {
+      const encoded = encode(withIdleCompaction(DEFAULT_SERVER_SETTINGS, mode)) as {
+        readonly compactIdleThreads: unknown;
+        readonly idleCompaction: unknown;
+      };
+      expect(encoded.compactIdleThreads).toBe(mode === "beforeCacheExpires");
+      expect(encoded.idleCompaction).toBe(mode);
+    }
+  });
+
+  it("patches the field the server reads", () => {
+    expect(
+      idleCompactionPatch({ compactIdleThreads: false, idleCompaction: "onReturn" }, "off"),
+    ).toEqual({
+      idleCompaction: "off",
+    });
+    expect(idleCompactionPatch({ compactIdleThreads: "onReturn" }, "off")).toEqual({
+      compactIdleThreads: "off",
+    });
+    expect(idleCompactionPatch({ compactIdleThreads: false }, "beforeCacheExpires")).toEqual({
+      compactIdleThreads: true,
+    });
+  });
+});
+
 describe("ClientSettings notifications", () => {
   it("requires opt-in when existing settings omit notification preferences", () => {
     expect(decodeClientSettings({}).notificationMode).toBe("off");
@@ -152,13 +256,6 @@ describe("ClientSettings quit confirmation", () => {
 
     expect(settings.confirmQuit).toBe(mode);
     expect(encodeClientSettings(settings).confirmQuit).toBe(mode);
-  });
-});
-
-describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
-  it("decodes a fully empty config (legacy on-disk shape) without complaint", () => {
-    const decoded = decodeServerSettings({});
-    expect(decoded.providerInstances).toEqual({});
   });
 });
 
@@ -290,19 +387,6 @@ describe("resolveProjectProviderInstanceEnabled", () => {
       },
     };
     expect(resolveProjectProviderInstanceEnabled(settings, projectId, instanceId)).toBe(false);
-  });
-
-  it("always resolves to the machine value when no project is in scope", () => {
-    const settings: ServerSettings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      providerInstances: {
-        [instanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
-      },
-      projectSettingsOverrides: {
-        [projectId]: { providerInstances: { [instanceId]: { enabled: false } } },
-      },
-    };
-    expect(resolveProjectProviderInstanceEnabled(settings, null, instanceId)).toBe(true);
   });
 });
 

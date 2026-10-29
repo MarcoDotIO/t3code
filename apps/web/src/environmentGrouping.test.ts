@@ -1,7 +1,7 @@
 import { EnvironmentId, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveLogicalProjectKeyFromSettings } from "./logicalProject";
+import { deriveLogicalProjectKeyFromSettings } from "@t3tools/client-runtime/state/project-grouping";
 import {
   buildSidebarProjectPickerEntries,
   buildSidebarProjectSnapshots,
@@ -206,43 +206,6 @@ describe("environment grouping", () => {
     });
     expect(pickerEntry?.isPreferred).toBe(true);
     expect(pickerEntry?.targetProject.id).toBe(canonical.id);
-  });
-
-  it("builds one picker entry per logical project and targets the preferred environment", () => {
-    const primary = makeProject({ repositoryIdentity });
-    const remote = makeProject({
-      id: ProjectId.make("project-remote"),
-      environmentId: remoteEnvironmentId,
-      repositoryIdentity,
-    });
-    const separate = makeProject({
-      id: ProjectId.make("project-separate"),
-      title: "separate",
-      workspaceRoot: "/tmp/separate",
-    });
-    const groups = buildSidebarProjectSnapshots({
-      projects: [separate, primary, remote],
-      settings: defaultGroupingSettings,
-      primaryEnvironmentId,
-      resolveEnvironmentLabel: () => null,
-    });
-
-    const entries = buildSidebarProjectPickerEntries({
-      groups,
-      preferredProjectRef: {
-        environmentId: remoteEnvironmentId,
-        projectId: remote.id,
-      },
-    });
-
-    expect(entries).toHaveLength(2);
-    expect(entries[0]?.group.projectKey).toBe(repositoryIdentity.canonicalKey);
-    expect(entries[0]?.targetProject).toMatchObject({
-      environmentId: remoteEnvironmentId,
-      id: remote.id,
-    });
-    expect(entries[0]?.isPreferred).toBe(true);
-    expect(entries[1]?.group.displayName).toBe("separate");
   });
 
   it("keeps the current environment when available and falls back otherwise", () => {

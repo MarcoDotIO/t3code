@@ -8,8 +8,6 @@ import {
   accessibleWindowText,
   compactAccessibilityTree,
   findAccessibleWindow,
-  findCaptureSource,
-  hideAndWaitForBlur,
   isWaylandSession,
 } from "./snapShot.ts";
 
@@ -315,17 +313,6 @@ describe("findAccessibleWindow", () => {
     expect(findAccessibleWindow(windows, captured)).toBe(windows[1]);
   });
 
-  it("uses the matched source title when macOS omits the active title", () => {
-    const windows = [{ name: "Editor", bounds: captured.bounds }];
-    expect(
-      findAccessibleWindow(windows, {
-        ...captured,
-        title: "",
-        sourceTitle: "Editor",
-      }),
-    ).toBe(windows[0]);
-  });
-
   it("uses the captured source title when the active title changed", () => {
     const windows = [{ name: "Editor — saved", bounds: captured.bounds }];
 
@@ -457,68 +444,6 @@ describe("findAccessibleWindow", () => {
   ])("does not guess a Wayland title match: %s → %s", (title, name) => {
     expect(
       findAccessibleWindow([{ name, bounds: captured.bounds }], { ...captured, title }, "wayland"),
-    ).toBeUndefined();
-  });
-});
-
-describe("hideAndWaitForBlur", () => {
-  it("waits for a delayed blur after hiding the window", async () => {
-    let blur: (() => void) | undefined;
-    let settled = false;
-    const hidden = hideAndWaitForBlur({
-      hide: () => undefined,
-      once: (_event, listener) => {
-        blur = listener;
-      },
-      removeListener: () => undefined,
-    }).then(() => {
-      settled = true;
-    });
-
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    blur?.();
-    await hidden;
-    expect(settled).toBe(true);
-  });
-});
-
-describe("findCaptureSource", () => {
-  const sources = [
-    { id: "window:42:0", name: "Terminal" },
-    { id: "window:84:0", name: "Editor" },
-  ];
-
-  it("matches the native window id before its title", () => {
-    expect(
-      findCaptureSource(sources, {
-        id: 84,
-        title: "Changed title",
-      }),
-    ).toEqual(sources[1]);
-  });
-
-  it("falls back to a unique title match", () => {
-    expect(
-      findCaptureSource(sources, {
-        id: 100,
-        title: "Terminal",
-      }),
-    ).toEqual(sources[0]);
-  });
-
-  it("does not guess when a title is ambiguous", () => {
-    expect(
-      findCaptureSource(
-        [
-          { id: "window:42:0", name: "Editor" },
-          { id: "window:84:0", name: "Editor" },
-        ],
-        {
-          id: 100,
-          title: "Editor",
-        },
-      ),
     ).toBeUndefined();
   });
 });
