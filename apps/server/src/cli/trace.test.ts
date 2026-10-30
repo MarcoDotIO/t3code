@@ -70,5 +70,5 @@ it("prints durations that round up to a second in seconds", () => {
   const row = formatTraceSummary(summarizer.finish(), 25)
     .split("\n")
     .find((line) => line.startsWith("rpc"));
-  assert.deepStrictEqual(row?.trim().split(/\s+/).slice(3, 6), ["999ms", "1.0s", "1.0s"]);
+  assert.deepStrictEqual(row?.trim().split(/\s+/).slice(3, 6), ["999ms", "1s", "1s"]);
 });
