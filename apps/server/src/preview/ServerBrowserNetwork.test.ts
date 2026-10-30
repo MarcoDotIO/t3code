@@ -239,6 +239,26 @@ describe("NetworkLog", () => {
     expect(await detail("r2")).toEqual({ text: '{"ok":false}', sizeBytes: 12, truncated: false });
   });
 
+  it("never reads a compressed body, whose decoded size nothing bounds", async () => {
+    const network = setup();
+    const request = makeRequest("http://localhost:5173/api/report", { responseBodySize: 1_000 });
+    const response = makeResponse(request, 200, {
+      "content-type": "application/json",
+      "content-encoding": "br",
+    });
+    network.start(request);
+    network.respond(response);
+    network.finish(request);
+
+    const { requests } = await network.log.query("tab-1", { requestId: "r1" });
+    expect(requests[0]?.responseBody).toEqual({
+      sizeBytes: 1_000,
+      truncated: true,
+      omitted: "unavailable",
+    });
+    expect(response.body).not.toHaveBeenCalled();
+  });
+
   it("reports a body Chromium no longer holds as unavailable", async () => {
     const network = setup();
     const request = makeRequest("http://localhost:5173/api/old");
