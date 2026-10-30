@@ -65,6 +65,7 @@ import { cn } from "../../lib/cn";
 import { THREAD_WORK_ROW_MIN_HEIGHT, type deriveThreadWorkLogSizing } from "../../lib/layout";
 import {
   formatItemFullDetail,
+  turnItemShowsFileDiff,
   type ThreadFeedActivity,
   workEntryRowLabel,
 } from "../../lib/threadActivity";
@@ -978,9 +979,12 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
     call && shownItem.type === "command_execution" && shownItem.exitCode
       ? shownItem.exitCode
       : null;
+  const showsFileDiff = turnItemShowsFileDiff(row.projectedItem.item);
+  const fileDiffItem =
+    expanded && showsFileDiff && fetchedItem?.type === "file_change" ? fetchedItem : null;
   const fullDetail =
     expanded && !reasoning && !call
-      ? fetchedItem && !isRead
+      ? fetchedItem && !isRead && !showsFileDiff
         ? formatItemFullDetail(row.projectedItem, fetchedItem)
         : row.getFullDetail()
       : null;
@@ -991,7 +995,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
       ? null
       : shownItem.type === "file_search" || shownItem.type === "web_search"
         ? turnItemOutputText(shownItem)
-        : fetchedItem?.type === "file_change"
+        : showsFileDiff && fetchedItem
           ? null
           : fetchedItem
             ? (turnItemOutputText(fetchedItem) ??
@@ -1001,7 +1005,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               : row.fetchesDetail
                 ? fetchedDetail.data
                   ? "Output is no longer available."
-                  : shownItem.type === "file_change"
+                  : showsFileDiff
                     ? "Loading diff…"
                     : "Loading output…"
                 : null;
@@ -1155,6 +1159,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
       {expanded &&
       (reasoning ||
         fullDetail ||
+        fileDiffItem ||
         call ||
         fetchedOutput ||
         viewedImagePath ||
@@ -1255,9 +1260,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
                 {fetchedOutput}
               </Text>
             ) : null}
-            {fetchedItem?.type === "file_change" && fetchedItem.status !== "failed" ? (
-              <FileChangeDiffText item={fetchedItem} />
-            ) : null}
+            {fileDiffItem ? <FileChangeDiffText item={fileDiffItem} /> : null}
             {streamsOutput ? null : exitLine}
           </ScrollView>
           {streamsOutput ? (

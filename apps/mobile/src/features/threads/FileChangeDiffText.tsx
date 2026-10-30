@@ -22,7 +22,13 @@ export function FileChangeDiffText(props: {
 }) {
   const diff = toolCallDiff(props.item);
   const shown = diff.patch?.trim() ? patchLines(diff.patch, MAX_DIFF_LINES) : null;
-  if (shown === null && diff.content.length === 0) return null;
+  if (shown === null && diff.content.length === 0) {
+    return (
+      <Text className={`mt-1.5 ${monoClassName} italic text-foreground-subtle`}>
+        No diff recorded.
+      </Text>
+    );
+  }
   const notes = [
     shown && shown.hiddenCount > 0 ? `${shown.hiddenCount} more lines not shown.` : null,
     diff.truncated ? "The recorded change was truncated." : null,
