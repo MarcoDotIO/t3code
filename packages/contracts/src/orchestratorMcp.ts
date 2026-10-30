@@ -353,9 +353,7 @@ export const OrchestratorMcpThreadListInput = Schema.Struct({
   snoozed: Schema.optional(Schema.Boolean),
   includeSubagents: Schema.optional(Schema.Boolean),
   cursor: Schema.optional(NonNegativeInt),
-  limit: Schema.optional(clampedPositiveInt(100)).annotate({
-    description: "Max threads, 1 to 100.",
-  }),
+  limit: Schema.optional(clampedPositiveInt(100)),
 });
 export type OrchestratorMcpThreadListInput = typeof OrchestratorMcpThreadListInput.Type;
 
