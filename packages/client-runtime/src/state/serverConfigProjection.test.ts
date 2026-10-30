@@ -76,6 +76,6 @@ describe("applyServerConfigProjection settingsUpdated", () => {
       type: "settingsUpdated",
       payload: { settings: decode() },
     } as ServerConfigStreamEvent);
-    expect(Option.getOrThrow(next).config.settings).toBe(settings);
+    expect(Option.getOrThrow(next).config).toBe(Option.getOrThrow(current).config);
   });
 });
