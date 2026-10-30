@@ -420,7 +420,8 @@ export const make = Effect.gen(function* () {
 
           return {
             relativePath: target.relativePath,
-            contents: new TextDecoder("utf-8").decode(fileBytes),
+            // Editors save these contents back verbatim, so a stripped BOM would vanish from the file.
+            contents: new TextDecoder("utf-8", { ignoreBOM: true }).decode(fileBytes),
             byteLength: stat.size,
             truncated: stat.size > PROJECT_READ_FILE_MAX_BYTES,
           };
