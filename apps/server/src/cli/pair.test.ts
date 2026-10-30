@@ -548,3 +548,41 @@ describe("auth pairing create --base-url", () => {
       }),
   );
 });
+
+describe("scripted auth output", () => {
+  // Live clock: the sweep compares the upload's real mtime with the current time.
+  it.live.each(
+    [
+      ["auth", "session", "issue", "--token-only"],
+      ["auth", "session", "list", "--json"],
+      ["auth", "pairing", "list", "--json"],
+    ].map((command) => ({ command, label: command.join(" ") })),
+  )("prints only the result for $label after removing an abandoned upload", ({ command }) =>
+    Effect.gen(function* () {
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-cli-quiet-test-"));
+      const attachmentsDir = NodePath.join(baseDir, "userdata", "attachments");
+      NodeFS.mkdirSync(attachmentsDir, { recursive: true });
+      // An abandoned upload makes config resolution log that it removed it.
+      const abandoned = NodePath.join(attachmentsDir, "abandoned.part");
+      NodeFS.writeFileSync(abandoned, "");
+      const jan2020Seconds = 1_577_836_800;
+      NodeFS.utimesSync(abandoned, jan2020Seconds, jan2020Seconds);
+
+      const lines = yield* provideCliTestLayers(
+        Effect.gen(function* () {
+          yield* runCli([...command, "--base-dir", baseDir]);
+          return yield* TestConsole.logLines;
+        }),
+      );
+
+      assert.isFalse(NodeFS.existsSync(abandoned));
+      assert.lengthOf(lines, 1);
+      const output = String(lines[0]);
+      if (command.includes("--json")) {
+        assert.deepEqual(JSON.parse(output), []);
+      } else {
+        assert.match(output.trim(), /^[\w-]+\.[\w-]+/);
+      }
+    }),
+  );
+});
