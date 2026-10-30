@@ -143,6 +143,7 @@ const callSnapshot = (args: Record<string, unknown>) => callTool("preview_snapsh
 const layerRecordingTools = (calls: Array<unknown>) => {
   const RecordingToolkit = Toolkit.make(
     OrchestratorToolkit.tools.delegate_task,
+    OrchestratorToolkit.tools.t3_thread_list,
     OrchestratorToolkit.tools.t3_thread_read,
     OrchestratorToolkit.tools.t3_thread_wait,
     ProjectToolkit.tools.t3_project_update,
@@ -158,6 +159,7 @@ const layerRecordingTools = (calls: Array<unknown>) => {
     RecordingToolkit,
     McpToolAccess.toLayer(RecordingToolkit, {
       delegate_task: record,
+      t3_thread_list: record,
       t3_thread_read: record,
       t3_thread_wait: record,
       t3_project_update: record,
@@ -462,6 +464,32 @@ it.effect.each(["limit", "runLimit", "maxCharsPerItem"])(
     }).pipe(Effect.provide(layerRecordingTools(calls)));
   },
 );
+
+it.effect("clamps a t3_thread_list limit above its maximum instead of rejecting the call", () => {
+  const calls: Array<unknown> = [];
+  return Effect.gen(function* () {
+    // Codex never shows the model this bound, so an over-large page must still list.
+    yield* callTool("t3_thread_list", { allProjects: true, limit: 200 });
+    yield* callTool("t3_thread_list", { allProjects: true, limit: 7 });
+
+    expect(calls).toEqual([
+      { allProjects: true, limit: 100 },
+      { allProjects: true, limit: 7 },
+    ]);
+  }).pipe(Effect.provide(layerRecordingTools(calls)));
+});
+
+it.effect("still rejects a t3_thread_list limit below its minimum", () => {
+  const calls: Array<unknown> = [];
+  return Effect.gen(function* () {
+    const rejected = yield* callTool("t3_thread_list", { allProjects: true, limit: 0 }).pipe(
+      Effect.flip,
+    );
+
+    expect(String(rejected)).toContain("greater than or equal to 1");
+    expect(calls).toEqual([]);
+  }).pipe(Effect.provide(layerRecordingTools(calls)));
+});
 
 it("keeps cross-tool routing out of the delegate_task description", () => {
   const description = OrchestratorToolkit.tools.delegate_task.description ?? "";
