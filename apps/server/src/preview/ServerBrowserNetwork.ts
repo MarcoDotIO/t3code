@@ -82,11 +82,13 @@ const receivedBodyBytes = async (response: Response) => {
 const responseBodyOf = async (response: Response): Promise<PreviewAutomationNetworkBody> => {
   const headers = response.headers();
   const contentType = headers["content-type"];
+  const declared = declaredLength(headers);
+  const received = await receivedBodyBytes(response);
   // Chunked framing wins over a conflicting content-length, so the larger size bounds the fetch.
-  const sizes = [declaredLength(headers), await receivedBodyBytes(response)].filter(
-    (value) => value !== undefined,
-  );
-  const size = sizes.length === 0 ? undefined : Math.max(...sizes);
+  const size =
+    declared === undefined && received === undefined
+      ? undefined
+      : Math.max(declared ?? 0, received ?? 0);
   const known = size === undefined ? {} : { sizeBytes: size };
   if (contentType !== undefined && !isText(contentType)) {
     return { ...known, truncated: false, omitted: "binary" };
@@ -94,7 +96,9 @@ const responseBodyOf = async (response: Response): Promise<PreviewAutomationNetw
   // Both sizes count encoded bytes, and body() decompresses, so a compressed body has no bound.
   const compressed =
     (headers["content-encoding"] ?? "identity").trim().toLowerCase() !== "identity";
-  if (compressed || size === undefined || size > BODY_FETCH_BYTES) {
+  // A body that arrived with no bytes came from a cache or a prefetch, which body() fetches again
+  // without any bound.
+  if (compressed || (received ?? 0) <= 0 || (size ?? 0) > BODY_FETCH_BYTES) {
     return { ...known, truncated: true, omitted: "unavailable" };
   }
   try {

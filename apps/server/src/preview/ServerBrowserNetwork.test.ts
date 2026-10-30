@@ -263,6 +263,26 @@ describe("NetworkLog", () => {
     expect(response.body).not.toHaveBeenCalled();
   });
 
+  it("never reads a body Chromium received no bytes for, such as a cached or prefetched one", async () => {
+    const network = setup();
+    const request = makeRequest("http://localhost:5173/api/cached", { responseBodySize: 0 });
+    const response = makeResponse(request, 200, {
+      "content-type": "application/json",
+      "content-length": "100",
+    });
+    network.start(request);
+    network.respond(response);
+    network.finish(request);
+
+    const { requests } = await network.log.query("tab-1", { requestId: "r1" });
+    expect(requests[0]?.responseBody).toEqual({
+      sizeBytes: 100,
+      truncated: true,
+      omitted: "unavailable",
+    });
+    expect(response.body).not.toHaveBeenCalled();
+  });
+
   it("never reads a compressed body, whose decoded size nothing bounds", async () => {
     const network = setup();
     const request = makeRequest("http://localhost:5173/api/report", { responseBodySize: 1_000 });
