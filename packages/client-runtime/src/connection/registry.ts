@@ -586,12 +586,24 @@ export const make = Effect.gen(function* () {
               connectionRouteId(existing.target) === connectionRouteId(route.target),
           );
           const upserted = upsertRoute(routes, route);
-          const next = withRoutes(
-            previous,
+          const relabeled =
             route.target._tag === "BearerConnectionTarget"
               ? relabelLearnedRoutes(upserted, route.target.connectionId, route.target.label)
-              : upserted,
-          );
+              : upserted;
+          // Persisted routes carry targets only, so a relabeled profile is saved on its own.
+          for (const [index, candidate] of relabeled.entries()) {
+            const profile = Option.getOrNull(candidate.profile);
+            if (candidate === upserted[index] || profile === null) continue;
+            yield* profiles.put(profile).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Could not save a learned route's new label.", {
+                  environmentId,
+                  error,
+                }),
+              ),
+            );
+          }
+          const next = withRoutes(previous, relabeled);
           if (next.addressesChanged) {
             yield* forgetRoutingTrust(environmentId, "register-connection");
           }
