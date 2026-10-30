@@ -91,7 +91,7 @@ const responseBodyOf = async (response: Response): Promise<PreviewAutomationNetw
   // Both sizes count encoded bytes, and body() decompresses, so a compressed body has no bound.
   const compressed =
     (headers["content-encoding"] ?? "identity").trim().toLowerCase() !== "identity";
-  if (compressed || (size !== undefined && size > BODY_FETCH_BYTES)) {
+  if (compressed || size === undefined || size > BODY_FETCH_BYTES) {
     return { ...known, truncated: true, omitted: "unavailable" };
   }
   try {

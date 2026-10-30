@@ -20,7 +20,7 @@ const makeRequest = (
     readonly headers?: Record<string, string>;
     readonly postData?: string;
     readonly errorText?: string;
-    readonly responseBodySize?: number;
+    readonly responseBodySize?: number | null;
   } = {},
 ) => ({
   url: () => url,
@@ -29,9 +29,10 @@ const makeRequest = (
   headers: () => options.headers ?? {},
   postDataBuffer: () => (options.postData === undefined ? null : Buffer.from(options.postData)),
   failure: () => (options.errorText === undefined ? null : { errorText: options.errorText }),
+  // Playwright gives a finished request its sizes; null stands for the call failing.
   sizes: async () => {
-    if (options.responseBodySize === undefined) throw new Error("Unable to fetch sizes");
-    return { responseBodySize: options.responseBodySize };
+    if (options.responseBodySize === null) throw new Error("Unable to fetch sizes");
+    return { responseBodySize: options.responseBodySize ?? 64 };
   },
 });
 
@@ -269,7 +270,24 @@ describe("NetworkLog", () => {
     network.finish(request);
 
     const { requests } = await network.log.query("tab-1", { requestId: "r1" });
-    expect(requests[0]?.responseBody).toEqual({ truncated: false, omitted: "unavailable" });
+    expect(requests[0]?.responseBody).toEqual({
+      sizeBytes: 64,
+      truncated: false,
+      omitted: "unavailable",
+    });
+  });
+
+  it("never reads a body whose size neither the headers nor Chromium report", async () => {
+    const network = setup();
+    const request = makeRequest("http://localhost:5173/api/unknown", { responseBodySize: null });
+    const response = makeResponse(request, 200, { "content-type": "application/json" }, "{}");
+    network.start(request);
+    network.respond(response);
+    network.finish(request);
+
+    const { requests } = await network.log.query("tab-1", { requestId: "r1" });
+    expect(requests[0]?.responseBody).toEqual({ truncated: true, omitted: "unavailable" });
+    expect(response.body).not.toHaveBeenCalled();
   });
 
   it("keeps the newest 200 requests and says when a listed id has aged out", async () => {

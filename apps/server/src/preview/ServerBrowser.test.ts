@@ -1573,6 +1573,7 @@ it.live("agents list a human's requests but read one's headers and bodies only o
         frame: () => page,
         headers: () => ({ "content-type": "application/json", authorization: "Bearer t" }),
         postDataBuffer: () => Buffer.from('{"password":"hunter2"}'),
+        sizes: async () => ({ responseBodySize: 24 }),
       };
       page.emit("request", login);
       page.emit("response", {
