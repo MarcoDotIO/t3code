@@ -47,4 +47,8 @@ Done.`),
     expect(decodeLenientJson('{"list":["x,}"]}')).toEqual({ list: ["x,}"] });
     expect(decodeLenientJson('{"values":[1, 2,],}')).toEqual({ values: [1, 2] });
   });
+
+  it("decodes a document that starts with a UTF-8 byte-order mark", () => {
+    expect(decodeLenientJson('\uFEFF{"scripts":[]}')).toEqual({ scripts: [] });
+  });
 });
