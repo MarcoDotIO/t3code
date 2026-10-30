@@ -240,6 +240,29 @@ describe("NetworkLog", () => {
     expect(await detail("r2")).toEqual({ text: '{"ok":false}', sizeBytes: 12, truncated: false });
   });
 
+  it("bounds a body by the bytes received when they exceed its content-length", async () => {
+    const network = setup();
+    const request = makeRequest("http://localhost:5173/api/conflict", {
+      responseBodySize: 6_000_000,
+    });
+    const response = makeResponse(request, 200, {
+      "content-type": "application/json",
+      "content-length": "10",
+      "transfer-encoding": "chunked",
+    });
+    network.start(request);
+    network.respond(response);
+    network.finish(request);
+
+    const { requests } = await network.log.query("tab-1", { requestId: "r1" });
+    expect(requests[0]?.responseBody).toEqual({
+      sizeBytes: 6_000_000,
+      truncated: true,
+      omitted: "unavailable",
+    });
+    expect(response.body).not.toHaveBeenCalled();
+  });
+
   it("never reads a compressed body, whose decoded size nothing bounds", async () => {
     const network = setup();
     const request = makeRequest("http://localhost:5173/api/report", { responseBodySize: 1_000 });

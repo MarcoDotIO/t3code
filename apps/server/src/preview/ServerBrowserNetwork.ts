@@ -82,8 +82,11 @@ const receivedBodyBytes = async (response: Response) => {
 const responseBodyOf = async (response: Response): Promise<PreviewAutomationNetworkBody> => {
   const headers = response.headers();
   const contentType = headers["content-type"];
-  // A chunked response declares no length, so the bytes Chromium received bound the fetch instead.
-  const size = declaredLength(headers) ?? (await receivedBodyBytes(response));
+  // Chunked framing wins over a conflicting content-length, so the larger size bounds the fetch.
+  const sizes = [declaredLength(headers), await receivedBodyBytes(response)].filter(
+    (value) => value !== undefined,
+  );
+  const size = sizes.length === 0 ? undefined : Math.max(...sizes);
   const known = size === undefined ? {} : { sizeBytes: size };
   if (contentType !== undefined && !isText(contentType)) {
     return { ...known, truncated: false, omitted: "binary" };
