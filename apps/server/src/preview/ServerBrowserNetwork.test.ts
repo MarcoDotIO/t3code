@@ -20,6 +20,7 @@ const makeRequest = (
     readonly headers?: Record<string, string>;
     readonly postData?: string;
     readonly errorText?: string;
+    readonly responseBodySize?: number;
   } = {},
 ) => ({
   url: () => url,
@@ -28,6 +29,10 @@ const makeRequest = (
   headers: () => options.headers ?? {},
   postDataBuffer: () => (options.postData === undefined ? null : Buffer.from(options.postData)),
   failure: () => (options.errorText === undefined ? null : { errorText: options.errorText }),
+  sizes: async () => {
+    if (options.responseBodySize === undefined) throw new Error("Unable to fetch sizes");
+    return { responseBodySize: options.responseBodySize };
+  },
 });
 
 const makeResponse = (
@@ -199,6 +204,39 @@ describe("NetworkLog", () => {
     expect(imageResponse.body).not.toHaveBeenCalled();
     expect(dumpResponse.body).not.toHaveBeenCalled();
     expect(streamResponse.body).not.toHaveBeenCalled();
+  });
+
+  it("bounds a chunked body without a declared length by the bytes received", async () => {
+    const network = setup();
+    const export_ = makeRequest("http://localhost:5173/api/export", {
+      responseBodySize: 6_000_000,
+    });
+    const exportResponse = makeResponse(export_, 200, { "content-type": "application/json" });
+    const small = makeRequest("http://localhost:5173/api/small", { responseBodySize: 11 });
+    const smallResponse = makeResponse(
+      small,
+      500,
+      { "content-type": "application/json" },
+      '{"ok":false}',
+    );
+    for (const [request, response] of [
+      [export_, exportResponse],
+      [small, smallResponse],
+    ] as const) {
+      network.start(request);
+      network.respond(response);
+      network.finish(request);
+    }
+
+    const detail = async (requestId: string) =>
+      (await network.log.query("tab-1", { requestId })).requests[0]?.responseBody;
+    expect(await detail("r1")).toEqual({
+      sizeBytes: 6_000_000,
+      truncated: true,
+      omitted: "unavailable",
+    });
+    expect(exportResponse.body).not.toHaveBeenCalled();
+    expect(await detail("r2")).toEqual({ text: '{"ok":false}', sizeBytes: 12, truncated: false });
   });
 
   it("reports a body Chromium no longer holds as unavailable", async () => {

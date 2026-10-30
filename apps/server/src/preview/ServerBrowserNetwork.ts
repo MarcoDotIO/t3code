@@ -71,15 +71,24 @@ export const bodyOf = (
   return { text, sizeBytes: bytes.byteLength, truncated };
 };
 
+const receivedBodyBytes = async (response: Response) => {
+  try {
+    return (await response.request().sizes()).responseBodySize;
+  } catch {
+    return undefined;
+  }
+};
+
 const responseBodyOf = async (response: Response): Promise<PreviewAutomationNetworkBody> => {
   const headers = response.headers();
   const contentType = headers["content-type"];
-  const declared = declaredLength(headers);
-  const known = declared === undefined ? {} : { sizeBytes: declared };
+  // A chunked response declares no length, so the bytes Chromium received bound the fetch instead.
+  const size = declaredLength(headers) ?? (await receivedBodyBytes(response));
+  const known = size === undefined ? {} : { sizeBytes: size };
   if (contentType !== undefined && !isText(contentType)) {
     return { ...known, truncated: false, omitted: "binary" };
   }
-  if (declared !== undefined && declared > BODY_FETCH_BYTES) {
+  if (size !== undefined && size > BODY_FETCH_BYTES) {
     return { ...known, truncated: true, omitted: "unavailable" };
   }
   try {
