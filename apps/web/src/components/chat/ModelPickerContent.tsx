@@ -41,6 +41,7 @@ import {
 } from "../ui/combobox";
 import { ModelEsque } from "./providerIconUtils";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
+import { registerModelPickerContent } from "../../modelPickerVisibility";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import {
   modelPickerJumpCommandForIndex,
@@ -377,6 +378,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const [searchQuery, setSearchQuery] = useState("");
   const modelListRef = useRef<LegendListRef | null>(null);
   const pickerContentRef = useRef<HTMLDivElement>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes this picker's mount to global keydown handlers
+  useLayoutEffect(() => registerModelPickerContent(), []);
   const highlightedModelKeyRef = useRef<string | null>(null);
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
   const activeEntry = props.instanceEntries.find(
@@ -770,7 +773,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   };
 
   const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
-    if (event.defaultPrevented || event.repeat || isCommandPaletteOpen()) {
+    if (
+      event.defaultPrevented ||
+      event.repeat ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      isCommandPaletteOpen()
+    ) {
       return;
     }
 
@@ -909,6 +918,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 setSearchQuery(e.target.value);
               }}
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) {
+                  (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+                  e.stopPropagation();
+                  return;
+                }
                 if (
                   showSidebar &&
                   !e.altKey &&

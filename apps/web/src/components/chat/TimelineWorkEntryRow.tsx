@@ -160,6 +160,7 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEn
     <SubagentNotificationLink
       parentRef={scopeThreadRef(ctx.activeThreadEnvironmentId, item.threadId)}
       childThreadId={childThreadId}
+      taskIds={item.source.kind === "delegated_task" ? item.source.taskIds : undefined}
       outcome={item.outcome}
       createdAt={props.workEntry.createdAt}
       timestampFormat={ctx.timestampFormat}
@@ -536,7 +537,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
               environmentId={ctx.activeThreadEnvironmentId}
               cwd={ctx.markdownCwd}
               workspaceRoot={workspaceRoot}
-              onOpenTurnDiff={ctx.onOpenTurnDiff}
+              onOpenToolDiff={ctx.onOpenToolDiff}
               onImageExpand={ctx.onImageExpand}
               source={ctx.turnItemSource}
             />
