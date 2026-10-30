@@ -1257,15 +1257,27 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       blockedByParent = yield* branchExists(cwd, segments.slice(0, index).join("/"));
     }
     const desiredBranch = blockedByParent ? segments.join("-") : requestedBranch;
+    // A branch nested under the name (`t3-fix/child`) blocks it as surely as one with the name.
+    const isBranchNameTaken = (name: string) =>
+      Effect.zipWith(
+        branchExists(cwd, name),
+        runGitStdout(
+          "GitVcsDriver.branchExists",
+          cwd,
+          ["for-each-ref", "--count=1", "--format=%(refname)", `refs/heads/${name}/`],
+          true,
+        ),
+        (exists, nested) => exists || nested.trim().length > 0,
+      );
 
-    const isDesiredTaken = yield* branchExists(cwd, desiredBranch);
+    const isDesiredTaken = yield* isBranchNameTaken(desiredBranch);
     if (!isDesiredTaken) {
       return desiredBranch;
     }
 
     for (let suffix = 1; suffix <= 100; suffix += 1) {
       const candidate = `${desiredBranch}-${suffix}`;
-      const isCandidateTaken = yield* branchExists(cwd, candidate);
+      const isCandidateTaken = yield* isBranchNameTaken(candidate);
       if (!isCandidateTaken) {
         return candidate;
       }
