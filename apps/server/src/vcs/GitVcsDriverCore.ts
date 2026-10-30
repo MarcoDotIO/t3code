@@ -1247,8 +1247,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
   const resolveAvailableBranchName = Effect.fn("resolveAvailableBranchName")(function* (
     cwd: string,
-    desiredBranch: string,
+    requestedBranch: string,
   ) {
+    // A branch at a parent path (such as `t3`) blocks every ref nested under it, so no suffix
+    // would help; flatten to a sibling the way temporary worktree branches already do.
+    const segments = requestedBranch.split("/");
+    let blockedByParent = false;
+    for (let index = 1; index < segments.length && !blockedByParent; index += 1) {
+      blockedByParent = yield* branchExists(cwd, segments.slice(0, index).join("/"));
+    }
+    const desiredBranch = blockedByParent ? segments.join("-") : requestedBranch;
+
     const isDesiredTaken = yield* branchExists(cwd, desiredBranch);
     if (!isDesiredTaken) {
       return desiredBranch;
