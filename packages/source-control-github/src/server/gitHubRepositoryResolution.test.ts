@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   gitHubApiHostForRemote,
+  parseGitHubRepositorySelector,
   selectGitHubBaseRepository,
 } from "./gitHubRepositoryResolution.ts";
 
@@ -79,6 +80,26 @@ describe("selectGitHubBaseRepository", () => {
   });
 });
 
+describe("parseGitHubRepositorySelector", () => {
+  it("drops a clone URL's .git suffix wherever the selector ends", () => {
+    for (const [selector, host, name] of [
+      ["https://github.com/acme/web.git", "github.com", "web"],
+      ["https://github.com/acme/web.git/", "github.com", "web"],
+      ["https://github.com/acme/web.git?tab=readme", "github.com", "web"],
+      ["https://github.com/acme/web.git.git", "github.com", "web.git"],
+      ["https://github.com/acme/web.git.git/", "github.com", "web.git"],
+      ["acme/web.git/", "github.com", "web"],
+      ["ghe.example.com/acme/web.git/", "ghe.example.com", "web"],
+    ] as const) {
+      assert.deepStrictEqual(parseGitHubRepositorySelector(selector, "github.com"), {
+        host,
+        owner: "acme",
+        name,
+      });
+    }
+  });
+});
+
 describe("gitHubApiHostForRemote", () => {
   it("reads an SSH alias through github.com and a real host as itself", () => {
     assert.strictEqual(gitHubApiHostForRemote("git@github:acme/web.git"), "github.com");
@@ -87,5 +108,24 @@ describe("gitHubApiHostForRemote", () => {
       "github.example.com",
     );
     assert.strictEqual(gitHubApiHostForRemote("git@gitlab.com:a/b.git"), null);
+  });
+});
+
+describe("parseGitHubRepositorySelector", () => {
+  it("reads host/owner/name only when the host is a plain hostname", () => {
+    assert.deepStrictEqual(parseGitHubRepositorySelector("GHE.corp:8443/acme/web", "github.com"), {
+      host: "ghe.corp:8443",
+      owner: "acme",
+      name: "web",
+    });
+    for (const selector of [
+      "evil.com#.ghe.com/acme/web",
+      "evil.com?.ghe.com/acme/web",
+      "token@evil.com/acme/web",
+      "evil.com\\.ghe.com/acme/web",
+      "-evil.com/acme/web",
+    ]) {
+      assert.strictEqual(parseGitHubRepositorySelector(selector, "github.com"), null, selector);
+    }
   });
 });
