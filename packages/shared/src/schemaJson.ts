@@ -26,7 +26,7 @@ const parseLenientJsonGetter = SchemaGetter.transformEffect((input: string) => {
   let stripped = input
     .replace(/^\uFEFF/, "")
     .replace(
-      /("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+      /("(?:[^"\\]|\\.)*")|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g,
       (match, stringLiteral: string | undefined) => (stringLiteral ? match : " "),
     );
 
