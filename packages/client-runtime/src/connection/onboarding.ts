@@ -30,6 +30,7 @@ import {
   type ConnectionAttemptError,
 } from "./model.ts";
 import * as Persistence from "../platform/persistence.ts";
+import { connectionCatalogDisplayUrl } from "./presentation.ts";
 import * as EnvironmentRegistry from "./registry.ts";
 import { orchestrationProtocolCompatibilityError } from "./compatibility.ts";
 import {
@@ -200,17 +201,20 @@ const updateBearerConnection = Effect.fn(
             candidate.target._tag === "BearerConnectionTarget" && !isLearned(candidate),
         );
   const entry = saved === undefined || route === undefined ? saved : routeEntry(saved, route);
-  // The edit form shows the address in use. Submitting a learned address unchanged is not a
-  // request to move the paired route there, so the paired route keeps its own address.
+  // The edit form shows the address in use, which can be a learned one. Submitting it unchanged
+  // is not a request to move the paired route there; typing any other address is.
   const pairedUrl = route === undefined ? null : routeHttpBaseUrl(route);
-  const submitsLearnedAddress =
+  const shownUrl = saved === undefined ? null : connectionCatalogDisplayUrl(saved);
+  const keepsShownLearnedAddress =
     saved !== undefined &&
+    shownUrl !== null &&
+    sameHttpAddress(shownUrl, input.httpBaseUrl) &&
     connectionRoutes(saved).some((candidate) => {
       const url = routeHttpBaseUrl(candidate);
-      return isLearned(candidate) && url !== null && sameHttpAddress(url, input.httpBaseUrl);
+      return isLearned(candidate) && url !== null && sameHttpAddress(url, shownUrl);
     });
   const update =
-    pairedUrl !== null && submitsLearnedAddress ? { ...input, httpBaseUrl: pairedUrl } : input;
+    pairedUrl !== null && keepsShownLearnedAddress ? { ...input, httpBaseUrl: pairedUrl } : input;
   const credential =
     entry?.target._tag === "BearerConnectionTarget"
       ? yield* credentials.get(entry.target.connectionId)

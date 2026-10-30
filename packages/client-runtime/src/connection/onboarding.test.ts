@@ -770,6 +770,62 @@ describe("connection onboarding", () => {
     },
   );
 
+  it.effect("moves the paired address to a different learned address the user typed", () => {
+    const pairedTarget = new BearerConnectionTarget({
+      environmentId: PAIRED_ENVIRONMENT_ID,
+      connectionId: PAIRED_PROFILE.connectionId,
+      label: PAIRED_PROFILE.label,
+    });
+    const learnedRoute = (origin: string) => {
+      const connectionId = `learned:${PAIRED_ENVIRONMENT_ID}:${origin}@${PAIRED_PROFILE.connectionId}`;
+      return {
+        target: new BearerConnectionTarget({ ...pairedTarget, connectionId }),
+        profile: new BearerConnectionProfile({
+          connectionId,
+          environmentId: PAIRED_ENVIRONMENT_ID,
+          label: PAIRED_PROFILE.label,
+          httpBaseUrl: `${origin}/`,
+          wsBaseUrl: `${origin.replace(/^http:/, "ws:")}/`,
+          learned: true,
+        }),
+      };
+    };
+    const shown = learnedRoute("http://192.168.1.10:3773");
+    const other = learnedRoute("http://10.0.0.5:3773");
+    return Effect.gen(function* () {
+      const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+      const onboarding = yield* Onboarding.ConnectionOnboarding;
+      yield* onboarding.updateBearer({
+        environmentId: PAIRED_ENVIRONMENT_ID,
+        label: PAIRED_PROFILE.label,
+        httpBaseUrl: "http://10.0.0.5:3773",
+      });
+
+      const entry = (yield* SubscriptionRef.get(registry.entries)).get(PAIRED_ENVIRONMENT_ID);
+      const paired = (entry === undefined ? [] : connectionRoutes(entry)).find(
+        (route) => connectionRouteId(route.target) === PAIRED_PROFILE.connectionId,
+      );
+      expect(Option.getOrNull(paired?.profile ?? Option.none())).toMatchObject({
+        httpBaseUrl: "http://10.0.0.5:3773/",
+      });
+    }).pipe(
+      Effect.provide(
+        layerPairingOnboarding(undefined, [], {
+          targets: [shown.target, other.target, pairedTarget],
+          profiles: [shown.profile, other.profile, PAIRED_PROFILE],
+          credentials: new Map([
+            [
+              PAIRED_PROFILE.connectionId,
+              new BearerConnectionCredential({ token: "paired-token" }),
+            ],
+          ]),
+          registered: [],
+          savedProfiles: [],
+        }),
+      ),
+    );
+  });
+
   it.effect("prepares an SSH registration from the provisioned platform environment", () =>
     Effect.gen(function* () {
       const target = {
