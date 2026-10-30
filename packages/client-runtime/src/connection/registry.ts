@@ -51,6 +51,7 @@ import {
   findRouteToSameAddress,
   hasSavedBearerRoute,
   mergeLearnedRoutes,
+  relabelLearnedRoutes,
   routesAfterRemoving,
   upsertRoute,
   type ReportedEndpoint,
@@ -584,7 +585,13 @@ export const make = Effect.gen(function* () {
               existing !== sameAddress ||
               connectionRouteId(existing.target) === connectionRouteId(route.target),
           );
-          const next = withRoutes(previous, upsertRoute(routes, route));
+          const upserted = upsertRoute(routes, route);
+          const next = withRoutes(
+            previous,
+            route.target._tag === "BearerConnectionTarget"
+              ? relabelLearnedRoutes(upserted, route.target.connectionId, route.target.label)
+              : upserted,
+          );
           if (next.addressesChanged) {
             yield* forgetRoutingTrust(environmentId, "register-connection");
           }

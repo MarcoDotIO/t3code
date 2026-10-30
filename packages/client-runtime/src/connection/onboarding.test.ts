@@ -666,9 +666,11 @@ describe("connection onboarding", () => {
       const entry = (yield* SubscriptionRef.get(registry.entries)).get(PAIRED_ENVIRONMENT_ID);
       const routes = entry === undefined ? [] : connectionRoutes(entry);
       expect(routes.map((route) => route.target)).toEqual([
-        learnedTarget,
+        new BearerConnectionTarget({ ...learnedTarget, label: "Renamed environment" }),
         new BearerConnectionTarget({ ...pairedTarget, label: "Renamed environment" }),
       ]);
+      // The environment shows its first route's name, which is the learned one.
+      expect(entry?.target.label).toBe("Renamed environment");
       expect(routes[1]?.profile).toEqual(
         Option.some(
           new BearerConnectionProfile({
