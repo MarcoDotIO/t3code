@@ -18,6 +18,7 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import * as TestClock from "effect/testing/TestClock";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command, CliError } from "effect/cli";
 
@@ -550,8 +551,7 @@ describe("auth pairing create --base-url", () => {
 });
 
 describe("scripted auth output", () => {
-  // Live clock: the sweep compares the upload's real mtime with the current time.
-  it.live.each(
+  it.effect.each(
     [
       ["auth", "session", "issue", "--token-only"],
       ["auth", "session", "list", "--json"],
@@ -567,6 +567,8 @@ describe("scripted auth output", () => {
       NodeFS.writeFileSync(abandoned, "");
       const jan2020Seconds = 1_577_836_800;
       NodeFS.utimesSync(abandoned, jan2020Seconds, jan2020Seconds);
+      // The sweep reads Clock, so a week past the upload's mtime makes it expired.
+      yield* TestClock.setTime((jan2020Seconds + 7 * 24 * 60 * 60) * 1000);
 
       const lines = yield* provideCliTestLayers(
         Effect.gen(function* () {
