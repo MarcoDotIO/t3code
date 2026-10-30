@@ -93,9 +93,9 @@ export const ResolvedKeybindingFromConfig = KeybindingRule.pipe(
 function keybindingRuleIdentity(rule: KeybindingRule): string {
   const shortcut = parseKeybindingShortcut(rule.key);
   const key = (shortcut && encodeShortcut(shortcut)) ?? rule.key;
-  if (rule.when === undefined) return `${rule.command}\u0000${key}`;
+  if (rule.when === undefined) return JSON.stringify([rule.command, key, null]);
   const whenAst = parseKeybindingWhenExpression(rule.when);
-  return `${rule.command}\u0000${key}\u0000${whenAst ? encodeWhenAst(whenAst) : rule.when}`;
+  return JSON.stringify([rule.command, key, whenAst ? encodeWhenAst(whenAst) : rule.when]);
 }
 
 function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): boolean {

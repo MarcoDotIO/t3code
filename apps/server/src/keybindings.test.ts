@@ -453,18 +453,28 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           when: "terminalFocus&&!previewFocus",
         },
         { key: "mod+shift+r", command: "script.run-tests.run" },
+        { key: "x\u0000true", command: "script.run-tests.run" },
+        { key: "x", command: "script.run-tests.run", when: "true" },
       ]);
       yield* Effect.gen(function* () {
         const keybindings = yield* Keybindings.Keybindings;
-        return yield* keybindings.removeKeybindingRule({
+        yield* keybindings.removeKeybindingRule({
           key: "meta+shift+r",
           command: "script.run-tests.run",
           when: "terminalFocus && !previewFocus",
         });
+        yield* keybindings.removeKeybindingRule({
+          key: "x",
+          command: "script.run-tests.run",
+          when: "true",
+        });
       });
 
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
-      assert.deepEqual(persisted, [{ key: "mod+shift+r", command: "script.run-tests.run" }]);
+      assert.deepEqual(persisted, [
+        { key: "mod+shift+r", command: "script.run-tests.run" },
+        { key: "x\u0000true", command: "script.run-tests.run" },
+      ]);
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
