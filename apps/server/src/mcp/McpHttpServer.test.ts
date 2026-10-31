@@ -551,7 +551,6 @@ it.effect.each(["limit", "runLimit", "maxCharsPerItem"])(
 it.effect("clamps a t3_thread_list limit above its maximum instead of rejecting the call", () => {
   const calls: Array<unknown> = [];
   return Effect.gen(function* () {
-    // Codex never shows the model this bound, so an over-large page must still list.
     yield* callTool("t3_thread_list", { allProjects: true, limit: 200 });
     yield* callTool("t3_thread_list", { allProjects: true, limit: 7 });
 
