@@ -7,7 +7,6 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
-import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { makePiTextGeneration } from "./textGeneration.ts";
@@ -23,7 +22,6 @@ const makeFakePi = (
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
     const received: Array<Record<string, unknown>> = [];
-    const launches: Array<ReadonlyArray<string>> = [];
     const emit = (record: Record<string, unknown>) =>
       Queue.offer(stdout, new TextEncoder().encode(`${encodeJsonLine(record)}\n`));
     let buffered = "";
@@ -49,9 +47,8 @@ const makeFakePi = (
           }
         }
       });
-    const spawner = ChildProcessSpawner.make((command) => {
-      launches.push(ChildProcess.isStandardCommand(command) ? command.args : []);
-      return Effect.succeed(
+    const spawner = ChildProcessSpawner.make(() =>
+      Effect.succeed(
         ChildProcessSpawner.makeHandle({
           // Outside the valid pid range, so PiRpc's process-group kill never lands.
           pid: ChildProcessSpawner.ProcessId(999_999_999),
@@ -66,9 +63,9 @@ const makeFakePi = (
           getInputFd: () => Sink.drain,
           getOutputFd: () => Stream.empty,
         }),
-      );
-    });
-    return { spawner, received, launches };
+      ),
+    );
+    return { spawner, received };
   });
 
 it.effect("names the model and the disabled extensions when Pi cannot load it", () =>
@@ -195,16 +192,16 @@ it.effect.each([
     assert.equal(result.subject, "Update README");
     assert.deepEqual(
       pi.received.map((record) => record["type"]),
-      [...(model === "default" ? [] : ["set_model"]), "prompt", "get_last_assistant_text"],
+      [
+        ...(model === "default" ? [] : ["set_model"]),
+        ...(expected === undefined ? [] : ["set_thinking_level"]),
+        "prompt",
+        "get_last_assistant_text",
+      ],
     );
-    const args = pi.launches[0] ?? [];
-    assert.equal(args.includes("--thinking"), expected !== undefined);
-    if (expected !== undefined) {
-      assert.equal(args[args.indexOf("--thinking") + 1], expected);
-      if (model !== "default") {
-        assert.equal(args[args.indexOf("--provider") + 1], "demo");
-        assert.equal(args[args.indexOf("--model") + 1], "demo-model");
-      }
-    }
+    assert.equal(
+      pi.received.find((record) => record["type"] === "set_thinking_level")?.["level"],
+      expected,
+    );
   }),
 );
