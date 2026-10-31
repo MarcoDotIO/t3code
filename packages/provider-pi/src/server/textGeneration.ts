@@ -8,7 +8,7 @@ import { TextGenerationError } from "@t3tools/contracts";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import type { PiSettings } from "../settings.ts";
 
-import { makePiRpcConnection, parsePiModelSlug } from "./rpc.ts";
+import { makePiRpcConnection, parsePiModelSlug, piRecordString } from "./rpc.ts";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 import { isPiThinkingLevel } from "./thinkingCapabilities.ts";
@@ -16,6 +16,15 @@ import { isPiThinkingLevel } from "./thinkingCapabilities.ts";
 const PI_TIMEOUT_MS = 180_000;
 
 const isTextGenerationError = Schema.is(TextGenerationError);
+
+// Pi's `errorMessage` is the provider's raw response text and can echo
+// credentials, so only a leading HTTP status reaches the error detail.
+const piTurnErrorDetail = (errorMessage: string | undefined) => {
+  const status = errorMessage?.match(/^([45]\d\d)\b/)?.[1];
+  return status === undefined
+    ? "Pi could not generate text: the model provider reported an error."
+    : `Pi could not generate text: the model provider returned HTTP ${status}.`;
+};
 
 export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* (
   piSettings: PiSettings,
@@ -86,10 +95,20 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
       }
 
       yield* connection.request({ type: "prompt", message: prompt });
+      // Provider failures (bad key, rate limit, 5xx) arrive on the assistant
+      // `message_end`. Keep only the latest, since Pi can retry and still answer.
+      let turnError: string | undefined;
       yield* Effect.gen(function* () {
         while (true) {
           const event = yield* Queue.take(connection.events);
           if (event["type"] === "agent_settled") return;
+          const message = event["message"];
+          if (event["type"] === "message_end" && piRecordString(message, "role") === "assistant") {
+            turnError =
+              piRecordString(message, "stopReason") === "error"
+                ? piTurnErrorDetail(piRecordString(message, "errorMessage"))
+                : undefined;
+          }
         }
       });
       const data = yield* connection.request({ type: "get_last_assistant_text" });
@@ -102,7 +121,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
       if (!text) {
         return yield* new TextGenerationError({
           operation,
-          detail: "Pi returned empty output.",
+          detail: turnError ?? "Pi returned empty output.",
         });
       }
       return yield* TextGenerationOperations.decodeJsonReply(request, "Pi", text);
