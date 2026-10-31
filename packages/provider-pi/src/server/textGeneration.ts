@@ -40,7 +40,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
       const { operation, cwd, prompt, modelSelection } = request;
       const thinking = getModelSelectionStringOptionValue(modelSelection, "thinking");
       if (thinking !== undefined && isPiThinkingLevel(thinking)) {
-        const output = yield* runPiVersionCommand(piSettings, environment).pipe(
+        const output = yield* runPiVersionCommand(piSettings, environment, cwd).pipe(
           Effect.timeoutOption(4_000),
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         );
