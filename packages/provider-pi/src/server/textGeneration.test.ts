@@ -161,7 +161,15 @@ it.effect("drops an earlier error once a later attempt succeeds", () =>
   }),
 );
 
-it.effect("applies the selected thinking level before prompting", () =>
+it.effect.each([
+  { model: "demo/demo-model", thinking: "off", expected: "off" },
+  { model: "demo/demo-model", thinking: "high", expected: "high" },
+  { model: "demo/demo-model", thinking: "max", expected: "max" },
+  { model: "demo/demo-model", thinking: "invalid", expected: undefined },
+  { model: "demo/demo-model", thinking: undefined, expected: undefined },
+  { model: "default", thinking: "off", expected: "off" },
+  { model: "default", thinking: undefined, expected: undefined },
+])("applies thinking=$thinking for $model before prompting", ({ model, thinking, expected }) =>
   Effect.gen(function* () {
     const pi = yield* makeFakePi(JSON.stringify({ subject: "Update README", body: "" }));
     const textGeneration = yield* makePiTextGeneration(
@@ -169,23 +177,31 @@ it.effect("applies the selected thinking level before prompting", () =>
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
 
-    yield* textGeneration.generateCommitMessage({
+    const result = yield* textGeneration.generateCommitMessage({
       cwd: process.cwd(),
       branch: "main",
       stagedSummary: "M README.md",
       stagedPatch: "diff --git a/README.md b/README.md",
-      modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "demo/demo-model", [
-        { id: "thinking", value: "off" },
-      ]),
+      modelSelection: createModelSelection(
+        ProviderInstanceId.make("pi"),
+        model,
+        thinking === undefined ? [] : [{ id: "thinking", value: thinking }],
+      ),
     });
 
+    assert.equal(result.subject, "Update README");
     assert.deepEqual(
       pi.received.map((record) => record["type"]),
-      ["set_model", "set_thinking_level", "prompt", "get_last_assistant_text"],
+      [
+        ...(model === "default" ? [] : ["set_model"]),
+        ...(expected === undefined ? [] : ["set_thinking_level"]),
+        "prompt",
+        "get_last_assistant_text",
+      ],
     );
     assert.equal(
       pi.received.find((record) => record["type"] === "set_thinking_level")?.["level"],
-      "off",
+      expected,
     );
   }),
 );
