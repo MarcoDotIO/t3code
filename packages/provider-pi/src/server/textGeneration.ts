@@ -43,8 +43,26 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
           detail: resolvedLaunchArgs.message,
         });
       }
+      const parsed =
+        modelSelection.model === "default" ? undefined : parsePiModelSlug(modelSelection.model);
+      if (parsed === null) {
+        return yield* new TextGenerationError({
+          operation,
+          detail: `Pi model '${modelSelection.model}' must use provider/model format.`,
+        });
+      }
+      const thinking = getModelSelectionStringOptionValue(modelSelection, "thinking");
+      // Older Pi versions persist RPC thinking changes even with --no-session.
+      const thinkingArgs =
+        thinking !== undefined && isPiThinkingLevel(thinking)
+          ? [
+              ...(parsed ? ["--provider", parsed.provider, "--model", parsed.modelId] : []),
+              "--thinking",
+              thinking,
+            ]
+          : [];
       const launch = buildPiRpcLaunch({
-        launchArgs: resolvedLaunchArgs.args,
+        launchArgs: [...resolvedLaunchArgs.args, ...thinkingArgs],
         environment,
         mcpSession: undefined,
         extensionPath: undefined,
@@ -60,15 +78,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         env: launch.env,
       }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
 
-      if (modelSelection.model !== "default") {
-        // Reject unusable custom slugs; silently using Pi's default would misreport the requested model.
-        const parsed = parsePiModelSlug(modelSelection.model);
-        if (parsed === null) {
-          return yield* new TextGenerationError({
-            operation,
-            detail: `Pi model '${modelSelection.model}' must use provider/model format.`,
-          });
-        }
+      if (parsed !== undefined) {
         yield* connection
           .request({ type: "set_model", provider: parsed.provider, modelId: parsed.modelId })
           .pipe(
@@ -87,11 +97,6 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
                 : error,
             ),
           );
-      }
-
-      const thinking = getModelSelectionStringOptionValue(modelSelection, "thinking");
-      if (thinking !== undefined && isPiThinkingLevel(thinking)) {
-        yield* connection.request({ type: "set_thinking_level", level: thinking });
       }
 
       yield* connection.request({ type: "prompt", message: prompt });
