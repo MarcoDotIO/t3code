@@ -99,7 +99,6 @@ export function makeTraceSpanSummary(sinceMs = -Infinity) {
   return { addLine, finish };
 }
 
-// Round before picking the unit, or 999.6 ms prints as "1000ms".
 const formatMs = (ms: number) =>
   Math.round(ms) < 1_000 ? `${Math.round(ms)}ms` : `${Math.round(ms / 100) / 10}s`;
 
