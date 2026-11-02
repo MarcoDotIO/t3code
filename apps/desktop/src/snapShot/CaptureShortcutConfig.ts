@@ -13,6 +13,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   captureConfigKeys,
+  captureConfigLabel,
   editCaptureConfig,
   niriConfigConflict,
   niriConfigIncludes,
@@ -160,8 +161,10 @@ export class CaptureShortcutConfig {
       request.shortcut,
     );
     // Lua bindings appear as opaque callbacks, including our own unchanged shortcut.
+    // Hand-edited keys like $mainMod can't be matched against hyprctl's modmask.
     const checkHyprlandKeys =
       request.operation === "install" &&
+      captureConfigLabel(edit.shortcut) !== null &&
       (format === "hyprland" || (format === "hyprland-lua" && edit.after !== root.text));
     const files = [root];
     const missing: string[] = [];

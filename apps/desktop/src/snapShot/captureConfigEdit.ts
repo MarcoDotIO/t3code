@@ -31,12 +31,18 @@ export function captureConfigKeys(input = "Ctrl+Shift+2") {
   };
 }
 
-function sameKeys(left: string, right: string) {
+/** Null for keys the recorder can't offer; manual setup invites them, such as Niri's Mod or Hyprland's $mainMod. */
+export function captureConfigLabel(keys?: string) {
   try {
-    return captureConfigKeys(left).label === captureConfigKeys(right).label;
+    return captureConfigKeys(keys).label;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function sameKeys(left: string, right: string) {
+  const label = captureConfigLabel(left);
+  return label !== null && label === captureConfigLabel(right);
 }
 
 export function captureConfigBinding(format: CaptureConfigFormat, appId: string, keys: string) {
@@ -156,11 +162,15 @@ export function editCaptureConfig(
     : hyprlandBinds(source, format === "hyprland-lua").filter(
         (bind) => bind.action === `${appId}:capture-window`,
       );
-  const keys = captureConfigKeys(requestedKeys ?? existing[0]?.keys).label;
-  if (operation === "install" && existing.length === 1 && sameKeys(existing[0]!.keys, keys))
+  const currentKeys = requestedKeys ?? existing[0]?.keys;
+  const shownKeys = captureConfigLabel(currentKeys) ?? currentKeys!;
+  if (operation === "remove") return { after: removeNodes(source, existing), shortcut: shownKeys };
+  if (requestedKeys === undefined && existing.length === 1)
+    return { after: source, shortcut: shownKeys };
+  const keys = captureConfigKeys(currentKeys).label;
+  if (existing.length === 1 && sameKeys(existing[0]!.keys, keys))
     return { after: source, shortcut: keys };
   let after = removeNodes(source, existing);
-  if (operation === "remove") return { after, shortcut: keys };
   const conflict = niri
     ? niriConfigConflict(after, appId, keys)
     : hyprlandBinds(after, false).some((bind) => sameKeys(bind.keys, keys));

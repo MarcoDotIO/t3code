@@ -55,6 +55,17 @@ describe("Niri capture config edits", () => {
     const removed = editCaptureConfig(result.after, "niri", app, "remove");
     expect(removed.after).toBe(`binds {\n    ${other}\n}\n`);
   });
+  it("keeps and removes a hand-edited binding whose keys the recorder cannot offer", () => {
+    const before = `binds {\n    ${binding.replace("Ctrl+Shift+2", "Mod+Shift+S")}\n    Mod+Q { quit; }\n}\n`;
+    expect(editCaptureConfig(before, "niri", app, "install")).toEqual({
+      after: before,
+      shortcut: "Mod+Shift+S",
+    });
+    expect(editCaptureConfig(before, "niri", app, "remove")).toEqual({
+      after: "binds {\n    Mod+Q { quit; }\n}\n",
+      shortcut: "Mod+Shift+S",
+    });
+  });
   it("refuses occupied keys regardless of modifier order, without removing them", () => {
     const before = "binds { Shift+Control+2 { quit; } }";
     expect(niriConfigConflict(before, app, "Ctrl+Shift+2")).toBe(true);
@@ -97,6 +108,14 @@ describe("Hyprland capture config edits", () => {
       );
     },
   );
+  it("keeps and removes a hand-edited binding that uses a config variable", () => {
+    const before = `$mainMod = SUPER\nbind = $mainMod SHIFT, S, global, ${app}:capture-window\n`;
+    expect(editCaptureConfig(before, "hyprland", app, "install")).toEqual({
+      after: before,
+      shortcut: "$mainMod+SHIFT+S",
+    });
+    expect(editCaptureConfig(before, "hyprland", app, "remove").after).toBe("$mainMod = SUPER\n");
+  });
   it("does not steal an existing legacy shortcut", () => {
     expect(() =>
       editCaptureConfig("bind = SHIFT CTRL, 2, exec, kitty\n", "hyprland", app, "install"),

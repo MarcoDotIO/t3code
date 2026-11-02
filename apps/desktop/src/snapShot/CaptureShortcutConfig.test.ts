@@ -205,6 +205,21 @@ it.each(["preview", "apply"] as const)(
     expect(tools.reloadHyprland).not.toHaveBeenCalled();
   },
 );
+it("accepts an unchanged Hyprland .conf shortcut written with a config variable", async () => {
+  const hypr = {
+    ...target(),
+    desktop: "hyprland" as const,
+    path: NodePath.join(directory, "hyprland.conf"),
+  };
+  const before = `$mainMod = SUPER\nbind = $mainMod SHIFT, S, global, ${appId}:capture-window\n`;
+  await NodeFSP.writeFile(hypr.path, before);
+
+  const preview = await setup.preview(hypr, install);
+  expect(preview.after).toBe(before);
+  expect(preview.shortcut).toBe("$mainMod+SHIFT+S");
+  expect(await setup.apply(preview.id, "hyprland")).toEqual({ backupPath: null, warning: null });
+  expect(tools.hyprlandBindings).not.toHaveBeenCalled();
+});
 it("rejects changing an existing capture shortcut to keys used by another Lua callback", async () => {
   const hypr = {
     ...target(),
