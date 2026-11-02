@@ -3140,6 +3140,12 @@ function isClaudeSubagentAsyncLaunchAck(output: ClaudeNativeToolOutput): boolean
 
 const WEB_FETCH_SNIPPET_MAX_CHARS = 8_000;
 
+// A structured WebFetch result wraps the answer in request metadata; text-only results are the answer.
+function claudeWebFetchText(output: ClaudeNativeToolOutput): string {
+  const result = field(claudeNativeToolOutputValue(output), "result");
+  return typeof result === "string" ? result : claudeNativeToolOutputText(output);
+}
+
 function webSearchPatternsFromClaudeTool(input: {
   readonly toolInput: ClaudeNativeToolInput;
   readonly output: ClaudeNativeToolOutput;
@@ -5729,7 +5735,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ? claudeCommandOutputText(input.output)
               : itemType === "file_change"
                 ? claudeFileChangeText(input.output)
-                : claudeNativeToolOutputText(input.output);
+                : input.classification.normalizedName === "webfetch"
+                  ? claudeWebFetchText(input.output)
+                  : claudeNativeToolOutputText(input.output);
           const turnItem: OrchestrationV2TurnItem =
             itemType === "command_execution"
               ? {
