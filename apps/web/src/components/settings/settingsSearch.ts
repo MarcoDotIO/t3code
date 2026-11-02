@@ -617,6 +617,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "resume-threads-after-connection-loss",
+    title: "Resume after connection loss",
+    to: "/settings/maintenance",
+    scope: "project-defaults",
+    searchTerms: ["resume interrupted network wifi offline reconnect dns codex automatically"],
+  },
+  {
     id: "background-activity",
     title: "Background activity",
     to: "/settings/maintenance",

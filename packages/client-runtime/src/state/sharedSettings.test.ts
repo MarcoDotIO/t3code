@@ -5,13 +5,20 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { filterSharedServerPatch } from "./sharedSettings.ts";
+import { filterSharedServerPatch, splitSharedServerPatch } from "./sharedSettings.ts";
 
 describe("filterSharedServerPatch", () => {
   it("holds the restart preference until the target's config loads", () => {
     const patch = { continueThreadsAfterServerUpdate: true, sidebarAutoSettleAfterDays: 7 };
     expect(filterSharedServerPatch(patch, undefined)).toEqual({ sidebarAutoSettleAfterDays: 7 });
     expect(filterSharedServerPatch(patch, DEFAULT_SERVER_SETTINGS)).toEqual(patch);
+  });
+
+  it("holds the connection-loss preference until the target's config loads, and fans it out", () => {
+    const patch = { resumeThreadsAfterConnectionLoss: true };
+    expect(filterSharedServerPatch(patch, undefined)).toEqual({});
+    expect(filterSharedServerPatch(patch, DEFAULT_SERVER_SETTINGS)).toEqual(patch);
+    expect(splitSharedServerPatch(patch).sharedPatch).toEqual(patch);
   });
 
   it.each([true, false])(

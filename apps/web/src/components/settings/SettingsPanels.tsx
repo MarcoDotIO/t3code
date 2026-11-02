@@ -541,6 +541,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
       ? ["Continue threads after restarts"]
       : []),
+    ...(settings.resumeThreadsAfterConnectionLoss !==
+    DEFAULT_UNIFIED_SETTINGS.resumeThreadsAfterConnectionLoss
+      ? ["Resume after connection loss"]
+      : []),
     ...(isBackgroundActivityDirty ? ["Background activity"] : []),
     ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
       ? ["New thread mode"]
@@ -658,6 +662,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
+      resumeThreadsAfterConnectionLoss: DEFAULT_UNIFIED_SETTINGS.resumeThreadsAfterConnectionLoss,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -1967,6 +1972,43 @@ export function MaintenanceSettingsPanel() {
                 updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
               }
               aria-label="Continue threads after restarts"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("resume-threads-after-connection-loss")}
+          serverScoped
+          settingKeys={["resumeThreadsAfterConnectionLoss"]}
+          description="Automatically resume tasks interrupted by a lost connection when connectivity returns. Works with Codex on its built-in OpenAI connection."
+          status={
+            !hasServerTargets
+              ? "All selected connected environments must support connection recovery."
+              : undefined
+          }
+          resetAction={
+            hasServerTargets &&
+            settings.resumeThreadsAfterConnectionLoss !==
+              DEFAULT_UNIFIED_SETTINGS.resumeThreadsAfterConnectionLoss ? (
+              <SettingResetButton
+                label="resume after connection loss"
+                onClick={() =>
+                  updateSettings({
+                    resumeThreadsAfterConnectionLoss:
+                      DEFAULT_UNIFIED_SETTINGS.resumeThreadsAfterConnectionLoss,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["resumeThreadsAfterConnectionLoss"]}
+              checked={settings.resumeThreadsAfterConnectionLoss}
+              disabled={!hasServerTargets}
+              onCheckedChange={(checked) =>
+                updateSettings({ resumeThreadsAfterConnectionLoss: Boolean(checked) })
+              }
+              aria-label="Resume after connection loss"
             />
           }
         />

@@ -14,6 +14,7 @@ import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entitie
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
+import { ConnectionRecoveryCard } from "./ConnectionRecoveryCard";
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import {
@@ -1570,6 +1571,15 @@ function ThreadDetailBody(
                         />
                       </Animated.View>
                     ) : null}
+                    <ConnectionRecoveryCard
+                      thread={props.selectedThread}
+                      onStop={() =>
+                        void interruptThreadTurn({
+                          environmentId: props.environmentId,
+                          input: { threadId: props.selectedThread.id },
+                        })
+                      }
+                    />
                     <UsageLimitRecoveryCard
                       key={props.selectedThread.latestRun?.runId}
                       thread={props.selectedThread}

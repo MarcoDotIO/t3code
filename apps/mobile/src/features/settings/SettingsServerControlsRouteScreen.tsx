@@ -73,7 +73,7 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
     "branchNamePrefix",
     "branchNameInstructions",
   ],
-  maintenance: ["continueThreadsAfterServerUpdate"],
+  maintenance: ["continueThreadsAfterServerUpdate", "resumeThreadsAfterConnectionLoss"],
 };
 
 const SUBMODULE_CHOICES: ReadonlyArray<{
@@ -551,6 +551,21 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                         disabled={disabledFor("continueThreadsAfterServerUpdate")}
                         onValueChange={(value) =>
                           write({ continueThreadsAfterServerUpdate: value })
+                        }
+                      />
+                    </View>
+                    <View className="border-t border-border-subtle">
+                      <SettingsSwitchRow
+                        icon="wifi.slash"
+                        label="Resume after connection loss"
+                        subtitle={managedSubtitle(
+                          "resumeThreadsAfterConnectionLoss",
+                          "Automatically resume tasks interrupted by a lost connection when connectivity returns. Works with Codex on its built-in OpenAI connection.",
+                        )}
+                        value={uniform("resumeThreadsAfterConnectionLoss")}
+                        disabled={disabledFor("resumeThreadsAfterConnectionLoss")}
+                        onValueChange={(value) =>
+                          write({ resumeThreadsAfterConnectionLoss: value })
                         }
                       />
                     </View>

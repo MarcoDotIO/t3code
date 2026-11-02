@@ -33,6 +33,8 @@ import { ThreadFind, ThreadFindCanvas } from "./chat/ThreadFindProvider";
 import { closeThreadFind, openThreadFind, useThreadFindOpen } from "./chat/threadFindStore";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
+import { connectionRecoveryBannerItem } from "./chat/ConnectionRecoveryBanner";
+import { connectionRecoveryNotice } from "@t3tools/client-runtime/state/connectionRecovery";
 import { resolveDraftHeroState } from "./ChatView.logic";
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import { recallCheckoutIsRepo, rememberCheckoutIsRepo } from "./ChatView.logic";
@@ -982,9 +984,10 @@ export default function ChatView(props: ChatViewProps) {
   );
   const browserAvailable = isPreviewSupportedInRuntime() || activeEnvironmentServerBrowser;
   const activeThreadShell = serverThread;
+  const connectionRecovery = activeThreadShell ? connectionRecoveryNotice(activeThreadShell) : null;
   const timelineThreadError =
     serverRuntime?.status === "failed" &&
-    serverRuntime.lastErrorClass === "usage_limit" &&
+    (serverRuntime.lastErrorClass === "usage_limit" || connectionRecovery?.kind === "waiting") &&
     activeThreadShell?.latestRun &&
     visibleThreadError === serverRuntime.lastError
       ? null
@@ -2555,6 +2558,13 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const connectionRecoveryBanner =
+    connectionRecovery === null
+      ? null
+      : connectionRecoveryBannerItem({
+          notice: connectionRecovery,
+          onStop: canOperateThread ? () => void onInterrupt() : null,
+        });
   const composerBannerItems = (() => {
     const fallbackSelection = draftFallback?.selection;
     const defaultSelection =
@@ -2601,7 +2611,10 @@ export default function ChatView(props: ChatViewProps) {
             }),
           ]
         : [];
-    const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
+    const limitRecoveryItems = [
+      ...(connectionRecoveryBanner === null ? [] : [connectionRecoveryBanner]),
+      ...(limitRecoveryBanner === null ? [] : [limitRecoveryBanner]),
+    ];
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {

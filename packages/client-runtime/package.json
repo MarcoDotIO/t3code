@@ -175,6 +175,10 @@
       "types": "./src/delayedStatus.ts",
       "default": "./src/delayedStatus.ts"
     },
+    "./state/connectionRecovery": {
+      "types": "./src/state/connectionRecovery.ts",
+      "default": "./src/state/connectionRecovery.ts"
+    },
     "./state/connections": {
       "types": "./src/state/connections.ts",
       "default": "./src/state/connections.ts"

@@ -99,6 +99,24 @@ when it resets, when Codex reports them. Send the message again after the reset.
 message also says whether your workspace owner needs to add credits or raise the
 spend limit to continue sooner.
 
+## Resume after a lost connection
+
+Codex retries a dropped connection on its own. If those retries run out, the turn
+fails. Turn on **Settings → Maintenance → Resume after connection loss** to continue
+that turn in the same conversation once the OpenAI connection works again. T3 Code
+sends no new prompt, so Codex picks up from its existing context.
+
+While it waits, the thread shows **Connection lost. Waiting to resume…** with a
+**Stop** button. Stop, a new message, settling or archiving the thread, an open
+approval or question, and turning the setting off all cancel the wait. Sign-in
+failures, usage limits, and other errors never resume on their own.
+
+This works with Codex on its built-in OpenAI connection. With a proxy or a custom
+base URL set in the environment, T3 Code can't check that route, so the thread says
+so and you continue by sending a message. Other providers keep their existing
+behavior. Updates, crashes, and machine restarts are covered by
+[Continue threads after restarts](./updating.md#before-you-update) instead.
+
 ## Send feedback to OpenAI
 
 In an existing Codex thread, send `/feedback` with an optional description, for

@@ -6,6 +6,7 @@ import type { EnvironmentConnectionPhase } from "../connection/presentation.ts";
 
 const SHARED_SERVER_SETTING_KEYS = [
   "continueThreadsAfterServerUpdate",
+  "resumeThreadsAfterConnectionLoss",
   "sidebarAutoSettleAfterDays",
   "sidebarAutoSettleOnMerge",
   "autoResumeLimitedThreads",
@@ -60,7 +61,9 @@ export function filterSharedServerPatch(
   ) {
     patch = Struct.omit(patch, ["textGenerationModelSelection"]);
   }
-  return settings ? patch : Struct.omit(patch, ["continueThreadsAfterServerUpdate"]);
+  return settings
+    ? patch
+    : Struct.omit(patch, ["continueThreadsAfterServerUpdate", "resumeThreadsAfterConnectionLoss"]);
 }
 
 export function supportsSharedSettingsSync(environment: {
