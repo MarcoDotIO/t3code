@@ -1106,6 +1106,46 @@ function codexUsageLimitError(
   );
 }
 
+const CODEX_CONNECTION_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "httpConnectionFailed",
+  "responseStreamConnectionFailed",
+  "responseStreamDisconnected",
+]);
+
+function codexConnectionFailureHttpStatus(errorInfo: CodexErrorInfo | null | undefined) {
+  if (typeof errorInfo !== "object" || errorInfo === null) return null;
+  if ("httpConnectionFailed" in errorInfo)
+    return errorInfo.httpConnectionFailed.httpStatusCode ?? null;
+  if ("responseStreamConnectionFailed" in errorInfo)
+    return errorInfo.responseStreamConnectionFailed.httpStatusCode ?? null;
+  if ("responseStreamDisconnected" in errorInfo)
+    return errorInfo.responseStreamDisconnected.httpStatusCode ?? null;
+  return null;
+}
+
+/**
+ * A turn that ended on a lost connection is a transport error, unless a 4xx shows the provider
+ * answered and refused. Retry exhaustion counts only when it ended connection retries and reports
+ * no HTTP status.
+ */
+function codexTerminalFailureClass(
+  code: string | null,
+  errorInfo: CodexErrorInfo | null | undefined,
+  retriedCode: string | null | undefined,
+): OrchestrationV2ProviderFailure["class"] {
+  if (codexUsageLimitError(code, errorInfo)) return "usage_limit";
+  if (code !== null && CODEX_CONNECTION_FAILURE_CODES.has(code)) {
+    const status = codexConnectionFailureHttpStatus(errorInfo);
+    return status !== null && status >= 400 && status < 500 ? "provider_error" : "transport_error";
+  }
+  return code === "responseTooManyFailedAttempts" &&
+    codexExhaustionHttpStatus(errorInfo) === null &&
+    retriedCode != null &&
+    CODEX_CONNECTION_FAILURE_CODES.has(retriedCode)
+    ? "transport_error"
+    : "provider_error";
+}
+
 /**
  * ChatGPT sharing reports its own reason inside Codex's generic turn error, so
  * the code it names replaces Codex's, and clients pick a recovery from it.
@@ -4642,6 +4682,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             const notificationCode = codexErrorInfoCode(payload.error.codexErrorInfo);
             if (!payload.willRetry) {
+              const retried = (yield* Ref.get(providerRetries)).get(context.providerTurnId);
               context.latestProviderFailure = {
                 nativeMessage: payload.error.message,
                 nativeCode: notificationCode,
@@ -4649,9 +4690,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   makeProviderFailure({
                     message: payload.error.additionalDetails?.trim() || payload.error.message,
                     code: notificationCode,
-                    class: codexUsageLimitError(notificationCode, payload.error.codexErrorInfo)
-                      ? "usage_limit"
-                      : "provider_error",
+                    class: codexTerminalFailureClass(
+                      notificationCode,
+                      payload.error.codexErrorInfo,
+                      retried?.nativeCode,
+                    ),
                   }),
                   payload.error,
                 ),
@@ -5743,9 +5786,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 input.failureErrorInfo === undefined
                   ? undefined
                   : codexErrorInfoCode(input.failureErrorInfo);
-              const failureClass = codexUsageLimitError(failureCode ?? null, input.failureErrorInfo)
-                ? "usage_limit"
-                : "provider_error";
+              const failureClass = codexTerminalFailureClass(
+                failureCode ?? null,
+                input.failureErrorInfo,
+                input.providerRetry?.nativeCode,
+              );
               // The notification carries the richer message, so it wins when the
               // completion repeats it. An explicit exhaustion status on the
               // completion still decides the class; a missing one is not evidence.
@@ -7176,7 +7221,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             return Effect.gen(function* () {
               yield* startNativeTurn(
                 turnInput,
-                turnInput.restartContinuationOfRunId === undefined
+                turnInput.restartContinuationOfRunId === undefined &&
+                  turnInput.connectionLossContinuationOfRunId === undefined
                   ? yield* toCodexInput(turnInput)
                   : [],
               );

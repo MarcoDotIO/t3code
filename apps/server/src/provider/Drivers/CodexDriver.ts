@@ -52,6 +52,7 @@ import {
 import { makeManagedCodexProvider } from "./CodexManagedProvider.ts";
 import { codexUsageReader } from "./codexUsage.ts";
 import * as CodexInstallation from "../CodexInstallation.ts";
+import { checkCodexConnection } from "../CodexConnectionCheck.ts";
 import * as CodexManagedTokenBroker from "../CodexManagedTokenBroker.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
@@ -376,6 +377,12 @@ export const CodexDriver: ProviderDriver<
       snapshot,
       snapshotForCwd,
       consumeResetCredit,
+      checkConnection: snapshot.getSnapshot.pipe(
+        Effect.flatMap((provider) =>
+          checkCodexConnection({ authType: provider.auth.type, environment: processEnv }),
+        ),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
       orchestrationAdapter,
       textGeneration,
     } satisfies ProviderInstance;

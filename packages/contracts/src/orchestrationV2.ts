@@ -420,6 +420,21 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
 /**
+ * Automatic resume after a provider confirms a lost connection ended its turn. `runId` is the
+ * failed run being continued. `resuming` lasts until the continuation shows provider progress.
+ */
+export const OrchestrationV2ConnectionRecovery = Schema.Struct({
+  runId: RunId,
+  status: Schema.Literals(["waiting", "resuming", "resumed", "unavailable"]),
+  /** Consecutive continuations of this task, counting the next one while waiting. */
+  attempt: PositiveInt,
+  /** When the current status began. */
+  since: IsoDateTime,
+  reason: Schema.optional(Schema.Literals(["unsupported", "gave_up"])),
+});
+export type OrchestrationV2ConnectionRecovery = typeof OrchestrationV2ConnectionRecovery.Type;
+
+/**
  * `score` is an open count that halves every two weeks, as of `openedAt`.
  * `picks` stores lowercase palette queries, newest first.
  * Times are epoch milliseconds for ranking arithmetic.
@@ -483,6 +498,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  connectionRecovery: Schema.optional(Schema.NullOr(OrchestrationV2ConnectionRecovery)),
   guestShare: Schema.optional(Schema.NullOr(ThreadGuestShare)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -690,6 +706,7 @@ export const OrchestrationV2Run = Schema.Struct({
   checkpointId: Schema.NullOr(CheckpointId),
   contextHandoffId: Schema.NullOr(ContextHandoffId),
   restartContinuationOfRunId: Schema.optional(RunId),
+  connectionLossContinuationOfRunId: Schema.optional(RunId),
   delegatedTaskId: Schema.optional(NodeId),
   workStartedAt: Schema.optional(Schema.DateTimeUtc),
   restartCancelledBackgroundWork: Schema.optional(
@@ -2129,6 +2146,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  connectionRecovery: Schema.optional(Schema.NullOr(OrchestrationV2ConnectionRecovery)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -3160,6 +3178,7 @@ export const OrchestrationV2Command = Schema.Union([
     modelSelection: Schema.optional(ModelSelection),
     sourcePlanRef: Schema.optional(Schema.Struct({ threadId: ThreadId, planId: PlanId })),
     restartContinuationOfRunId: Schema.optional(RunId),
+    connectionLossContinuationOfRunId: Schema.optional(RunId),
     usageLimitContinuationOfRunId: Schema.optional(RunId),
     manualContinuationOfRunId: Schema.optional(RunId),
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
@@ -3372,6 +3391,14 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
 // Excluded from dispatchCommand so only the server can send these.
 const OrchestrationV2InternalCommand = Schema.Union([
+  /** Applies only while the thread still holds `expected`, so a stale sweep changes nothing. */
+  Schema.Struct({
+    type: Schema.Literal("thread.connection-recovery.update"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    expected: Schema.NullOr(OrchestrationV2ConnectionRecovery),
+    connectionRecovery: Schema.NullOr(OrchestrationV2ConnectionRecovery),
+  }),
   // Guest share commands the server issues after checking T3 Connect and the guest token.
   Schema.Struct({
     type: Schema.Literal("thread.guest-share.open"),

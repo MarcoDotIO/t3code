@@ -40,6 +40,21 @@ const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const encodeServerSettingsPatch = Schema.encodeSync(ServerSettingsPatch);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("resume after connection loss", () => {
+  it("defaults off for fresh and existing settings, independent of restart continuation", () => {
+    expect(decodeServerSettings({}).resumeThreadsAfterConnectionLoss).toBe(false);
+    const existing = decodeServerSettings({ continueThreadsAfterServerUpdate: true });
+    expect(existing.continueThreadsAfterServerUpdate).toBe(true);
+    expect(existing.resumeThreadsAfterConnectionLoss).toBe(false);
+    const enabled = decodeServerSettings({
+      continueThreadsAfterServerUpdate: false,
+      resumeThreadsAfterConnectionLoss: true,
+    });
+    expect(enabled.continueThreadsAfterServerUpdate).toBe(false);
+    expect(enabled.resumeThreadsAfterConnectionLoss).toBe(true);
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

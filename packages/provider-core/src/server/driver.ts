@@ -32,6 +32,9 @@ export interface ProviderDriverMetadata {
 export type ProviderWorkspaceSnapshot = ServerProvider &
   Pick<ServerProviderWorkspaceSnapshot, "slashCommandsPending" | "optionDescriptors">;
 
+/** `unverifiable`: this route cannot be checked from here, so automatic resume cannot promise it. */
+export type ProviderConnectionCheck = "reachable" | "unreachable" | "unverifiable";
+
 export interface ProviderInstance {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind;
@@ -49,6 +52,11 @@ export interface ProviderInstance {
     ProviderConsumeResetCreditOutcome,
     ProviderDriverError
   >;
+  /**
+   * Offering this opts the instance into automatic resume after connection loss, so its adapter
+   * must report such a loss in the form `isConnectionLossFailure` accepts.
+   */
+  readonly checkConnection?: Effect.Effect<ProviderConnectionCheck>;
   readonly orchestrationAdapter: ProviderAdapter.ProviderAdapterV2["Service"];
   readonly textGeneration: ProviderTextGeneration;
   readonly auth?: ProviderAuthController;

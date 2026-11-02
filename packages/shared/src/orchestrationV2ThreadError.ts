@@ -37,6 +37,25 @@ export function latestRootProviderFailure(
   return latest?.failure ?? null;
 }
 
+const CONNECTION_LOSS_FAILURE_CODES: ReadonlySet<string> = new Set([
+  "httpConnectionFailed",
+  "responseStreamConnectionFailed",
+  "responseStreamDisconnected",
+  "responseTooManyFailedAttempts",
+]);
+
+/**
+ * The provider confirmed a lost connection ended its turn. Adapters decide the class; the code
+ * keeps out T3's own transport errors, such as an answer it could not deliver.
+ */
+export function isConnectionLossFailure(failure: OrchestrationV2ProviderFailure): boolean {
+  return (
+    failure.class === "transport_error" &&
+    failure.code !== null &&
+    CONNECTION_LOSS_FAILURE_CODES.has(failure.code)
+  );
+}
+
 export function threadErrorSummary(
   failure: OrchestrationV2ProviderFailure | null,
   sessionError: string | null,

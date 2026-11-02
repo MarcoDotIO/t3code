@@ -14,6 +14,7 @@ import { makeCodexTextGeneration } from "../../textGeneration/CodexTextGeneratio
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { chatGptModels } from "../CodexChatGptModels.ts";
 import { makeCodexManagedRuntime } from "../CodexManagedRuntime.ts";
+import { checkCodexConnection } from "../CodexConnectionCheck.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { createCodexAdapterV2 } from "../../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import {
@@ -41,11 +42,12 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const host = yield* ProviderHost.ProviderHost;
+  const environment = yield* mergeProviderInstanceEnvironment(input.environment);
   const runtime = yield* makeCodexManagedRuntime({
     instanceId,
     enabled,
     config,
-    environment: yield* mergeProviderInstanceEnvironment(input.environment),
+    environment,
   });
   const continuationIdentity = codexContinuationIdentity(runtime.homeLayout);
   const stamp = withInstanceIdentity({
@@ -293,6 +295,12 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
     accentColor,
     enabled,
     snapshot,
+    checkConnection: snapshot.getSnapshot.pipe(
+      Effect.flatMap((provider) =>
+        checkCodexConnection({ authType: provider.auth.type, environment }),
+      ),
+      Effect.provideService(HttpClient.HttpClient, http),
+    ),
     orchestrationAdapter,
     textGeneration,
     auth: runtime.auth.controller,

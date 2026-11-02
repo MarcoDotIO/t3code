@@ -1,3 +1,4 @@
+import { isConnectionLossFailure } from "@t3tools/shared/orchestrationV2ThreadError";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import {
   makeProviderTextDeltaCoalescer,
@@ -5581,6 +5582,188 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ),
         ),
       ),
+  );
+
+  const connectionError = (
+    label: string,
+    willRetry: boolean,
+    codexErrorInfo: Record<string, { readonly httpStatusCode: number | null }>,
+  ) => ({ label, willRetry, codexErrorInfo });
+  const disconnected = { responseStreamDisconnected: { httpStatusCode: null } };
+  const exhausted = (httpStatusCode: number | null) => ({
+    responseTooManyFailedAttempts: { httpStatusCode },
+  });
+  it.effect.each([
+    {
+      name: "a dropped stream",
+      notifications: [],
+      completion: disconnected,
+      expectedClass: "transport_error",
+    },
+    {
+      name: "a failed connection",
+      notifications: [
+        connectionError("error", false, { httpConnectionFailed: { httpStatusCode: null } }),
+      ],
+      completion: { httpConnectionFailed: { httpStatusCode: null } },
+      expectedClass: "transport_error",
+    },
+    {
+      name: "retries exhausted on a lost connection",
+      notifications: [
+        connectionError("error/retry", true, disconnected),
+        connectionError("error/exhausted", false, exhausted(null)),
+      ],
+      completion: exhausted(null),
+      expectedClass: "transport_error",
+    },
+    {
+      name: "retries exhausted with no connection evidence",
+      notifications: [connectionError("error", false, exhausted(null))],
+      completion: exhausted(null),
+      expectedClass: "provider_error",
+    },
+    {
+      name: "connection retries that ended on a server status",
+      notifications: [
+        connectionError("error/retry", true, disconnected),
+        connectionError("error/exhausted", false, exhausted(503)),
+      ],
+      completion: exhausted(503),
+      expectedClass: "provider_error",
+    },
+    {
+      name: "a refused connection",
+      notifications: [],
+      completion: { responseStreamConnectionFailed: { httpStatusCode: 401 } },
+      expectedClass: "provider_error",
+    },
+  ] as const)(
+    "classifies $name for connection recovery",
+    ({ name, notifications, completion, expectedClass }) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const id = name.replaceAll(" ", "-");
+          const nativeThreadId = `native-connection-${id}`;
+          const nativeTurnId = `turn-connection-${id}`;
+          const message = "stream disconnected before completion";
+          const transcript = makeCodexReplayTranscript({
+            scenario: `codex-connection-${id}`,
+            entries: [
+              ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
+              ...notifications.map((notification) => ({
+                type: "emit_inbound" as const,
+                label: notification.label,
+                frame: {
+                  method: "error",
+                  params: {
+                    threadId: nativeThreadId,
+                    turnId: nativeTurnId,
+                    willRetry: notification.willRetry,
+                    error: { message, codexErrorInfo: notification.codexErrorInfo },
+                  },
+                },
+              })),
+              {
+                type: "emit_inbound" as const,
+                label: "turn/completed",
+                frame: {
+                  method: "turn/completed",
+                  params: {
+                    threadId: nativeThreadId,
+                    turn: {
+                      ...makeCodexReplayTurn({ id: nativeTurnId, status: "failed" }),
+                      error: { message, codexErrorInfo: completion },
+                    },
+                  },
+                },
+              },
+            ],
+          });
+          const harness = yield* makeCodexReplayHarness(transcript);
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              text: "Continue.",
+              attemptId: RunAttemptId.make(`attempt-connection-${id}`),
+            }),
+          );
+          yield* harness.firstTerminal;
+          const terminal = harness.terminalEvents()[0];
+          assert.equal(terminal?.status, "failed");
+          if (terminal?.status !== "failed") return;
+          assert.equal(terminal.failure.class, expectedClass);
+          assert.equal(
+            isConnectionLossFailure(terminal.failure),
+            expectedClass === "transport_error",
+          );
+          assert.equal(terminal.threadDisposition, "reusable");
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
+  it.effect("continues promptlessly after connection loss, sending no prompt to Codex", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const nativeThreadId = "native-connection-continuation";
+        const nativeTurnId = "turn-connection-continuation";
+        const transcript = makeCodexReplayTranscript({
+          scenario: "codex-connection-continuation",
+          entries: [
+            // Replay fails the test unless turn/start sends exactly this input.
+            ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "unused" }).map(
+              (entry) =>
+                entry.type === "expect_outbound" && entry.label === "turn/start"
+                  ? {
+                      ...entry,
+                      frame: {
+                        ...(entry.frame as object),
+                        params: {
+                          ...(entry.frame as { readonly params: object }).params,
+                          input: [],
+                        },
+                      },
+                    }
+                  : entry,
+            ),
+            {
+              type: "emit_inbound" as const,
+              label: "turn/completed",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const harness = yield* makeCodexReplayHarness(transcript);
+        yield* harness.runtime.startTurn({
+          ...makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            text: "Continue where you left off.",
+            attemptId: RunAttemptId.make("attempt-connection-continuation"),
+          }),
+          connectionLossContinuationOfRunId: RunId.make("run-lost"),
+        });
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
   );
 
   const FAILED_SCENARIO = "codex-failed-mid-command";
