@@ -1588,9 +1588,17 @@ export const layer: Layer.Layer<
           const context = [delivery.context, sideChatContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
-          const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
+          const {
+            restartContinuationOfRunId: _resumedRunId,
+            connectionLossContinuationOfRunId: _lostRunId,
+            ...promptedInput
+          } = turnInput;
+          // A promptless turn would drop context that only a prompt can carry.
+          const sendPrompt =
+            noteContinuation ||
+            (turnInput.connectionLossContinuationOfRunId !== undefined && context !== "");
           yield* start({
-            ...(noteContinuation ? promptedInput : turnInput),
+            ...(sendPrompt ? promptedInput : turnInput),
             message: {
               ...turnInput.message,
               text: goalCommand ? userText : withInlineContext(context, userText),

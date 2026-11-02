@@ -1706,6 +1706,11 @@ export const layer: Layer.Layer<
             : {
                 restartContinuationOfRunId: input.run.restartContinuationOfRunId,
               }),
+          ...(input.run.connectionLossContinuationOfRunId === undefined
+            ? {}
+            : {
+                connectionLossContinuationOfRunId: input.run.connectionLossContinuationOfRunId,
+              }),
           attemptId: input.attemptId,
           rootNodeId: input.rootNode.id,
           providerThread: input.providerThread,

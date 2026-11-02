@@ -490,12 +490,14 @@ function wakeWorkStartedAt(
     readonly notification?: unknown;
     readonly delegatedCompletion?: unknown;
     readonly restartContinuationOfRunId?: RunId | undefined;
+    readonly connectionLossContinuationOfRunId?: RunId | undefined;
   },
 ): Pick<OrchestrationV2Run, "workStartedAt"> {
   if (
     trigger.notification === undefined &&
     trigger.delegatedCompletion === undefined &&
-    trigger.restartContinuationOfRunId === undefined
+    trigger.restartContinuationOfRunId === undefined &&
+    trigger.connectionLossContinuationOfRunId === undefined
   ) {
     return {};
   }
@@ -587,6 +589,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.interrupt.unresponsive":
     case "thread.stop":
     case "provider.switch":
+    case "thread.connection-recovery.update":
       return command.threadId;
     case "delegated_task.request":
     case "delegated_task.remote.request":
@@ -679,7 +682,11 @@ function cancelledAppOwnedTask(
 function mayStartSubagentFollowup(
   command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
 ): boolean {
-  if (command.scheduledTaskId !== undefined || command.restartContinuationOfRunId !== undefined)
+  if (
+    command.scheduledTaskId !== undefined ||
+    command.restartContinuationOfRunId !== undefined ||
+    command.connectionLossContinuationOfRunId !== undefined
+  )
     return false;
   if (command.notification !== undefined) return command.notification.source.kind !== "monitor";
   return command.createdBy === "user" || command.creationSource === "mcp";
@@ -2020,6 +2027,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           notification: queuedMessage.notification,
           delegatedCompletion: queuedMessage.delegatedCompletion,
           restartContinuationOfRunId: queuedRun.restartContinuationOfRunId,
+          connectionLossContinuationOfRunId: queuedRun.connectionLossContinuationOfRunId,
         }),
       };
       const userTurnItem: OrchestrationV2TurnItem = {
@@ -5470,6 +5478,51 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
     }
 
+    if (command.connectionLossContinuationOfRunId !== undefined) {
+      const source = latestExecutedRun(projection.runs);
+      const recovery = projection.thread.connectionRecovery;
+      const now = yield* DateTime.now;
+      if (
+        source?.id !== command.connectionLossContinuationOfRunId ||
+        source.status !== "failed" ||
+        recovery?.status !== "waiting" ||
+        recovery.runId !== source.id ||
+        projection.thread.archivedAt !== null ||
+        projection.thread.deletedAt !== null ||
+        projection.thread.settledOverride === "settled" ||
+        projection.thread.providerInstanceId !== source.providerInstanceId ||
+        projection.runtimeRequests.some((request) => request.status === "pending") ||
+        projection.runs.some((run) => run.status === "queued" || isLiveRun(run)) ||
+        (yield* stopReachedRun(command, command.threadId, source.id))
+      ) {
+        // Newer intent won after the sweep read this thread; accept without starting work.
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          occurredAt: now,
+          payload: projection.thread,
+        });
+        return;
+      }
+      // Committing with the run means a crash can never leave a marker that would send it twice.
+      const event = yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        occurredAt: now,
+        payload: {
+          ...projection.thread,
+          connectionRecovery: { ...recovery, status: "resuming", since: DateTime.formatIso(now) },
+        },
+      });
+      projection = applyToProjection(projection, event);
+    }
+
     if (projection.thread.lastVisitedAt === null && !isNativeMaintenanceCommand(command)) {
       const now = yield* DateTime.now;
       // Null keeps imported history read. The first fresh dispatch establishes
@@ -5661,7 +5714,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (command.creationSource !== "server" && command.creationSource !== "provider") ||
         (dispatchMode.type !== "queue_after_active" &&
           !(
-            command.restartContinuationOfRunId !== undefined &&
+            (command.restartContinuationOfRunId !== undefined ||
+              command.connectionLossContinuationOfRunId !== undefined) &&
             dispatchMode.type === "start_immediately"
           )))
     ) {
@@ -6019,6 +6073,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.restartContinuationOfRunId === undefined
           ? {}
           : { restartContinuationOfRunId: command.restartContinuationOfRunId }),
+        ...(command.connectionLossContinuationOfRunId === undefined
+          ? {}
+          : { connectionLossContinuationOfRunId: command.connectionLossContinuationOfRunId }),
         ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
       };
       const attempt: OrchestrationV2RunAttempt = {
@@ -6362,6 +6419,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.restartContinuationOfRunId === undefined
           ? {}
           : { restartContinuationOfRunId: command.restartContinuationOfRunId }),
+        ...(command.connectionLossContinuationOfRunId === undefined
+          ? {}
+          : { connectionLossContinuationOfRunId: command.connectionLossContinuationOfRunId }),
         ...(dispatchMode.type === "defer_start" && dispatchMode.workspaceStrategy !== undefined
           ? { workspacePreparation: dispatchMode.workspaceStrategy }
           : {}),
@@ -7117,6 +7177,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.restartContinuationOfRunId === undefined
         ? {}
         : { restartContinuationOfRunId: command.restartContinuationOfRunId }),
+      ...(command.connectionLossContinuationOfRunId === undefined
+        ? {}
+        : { connectionLossContinuationOfRunId: command.connectionLossContinuationOfRunId }),
       ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
       ...wakeWorkStartedAt(projection.runs, command),
     };
@@ -10754,6 +10817,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         payload: thread,
       });
     }
+    if (thread.connectionRecovery != null) {
+      thread = { ...thread, connectionRecovery: null, updatedAt: input.now };
+      yield* emitEvent({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        occurredAt: input.now,
+        payload: thread,
+      });
+    }
     const queuedRuns = runs.filter((run) => run.status === "queued");
     const queuedMessages =
       queuedRuns.length === 0
@@ -11774,6 +11846,39 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       return interrupted.value;
     },
   );
+
+  const dispatchConnectionRecoveryUpdate = Effect.fn(
+    "Orchestrator.dispatchConnectionRecoveryUpdate",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.connection-recovery.update" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const { thread, runs } = yield* projectionStore
+      .getThreadRecords(command.threadId, ["runs"])
+      .pipe(mapDispatchError(command));
+    const next = command.connectionRecovery;
+    const current = thread.connectionRecovery ?? null;
+    const stale =
+      current?.runId !== command.expected?.runId ||
+      current?.status !== command.expected?.status ||
+      current?.attempt !== command.expected?.attempt ||
+      (next?.status === "waiting" &&
+        (latestExecutedRun(runs)?.id !== next.runId ||
+          (yield* stopReachedRun(command, command.threadId, next.runId))));
+    // A stale sweep still gets its receipt, so it does not retry the same command.
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      occurredAt: yield* DateTime.now,
+      payload: stale ? thread : { ...thread, connectionRecovery: next },
+    });
+  });
 
   const dispatchThreadStop = Effect.fn("Orchestrator.dispatchThreadStop")(function* (
     command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.stop" }>,
@@ -13309,6 +13414,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.interrupt.unresponsive":
         yield* dispatchInterruptUnresponsive(command, events);
+        break;
+      case "thread.connection-recovery.update":
+        yield* dispatchConnectionRecoveryUpdate(command, events);
         break;
       case "thread.fork":
         yield* dispatchThreadFork(command, events);

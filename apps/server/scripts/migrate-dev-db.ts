@@ -305,7 +305,8 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
       WHERE latest.thread_id = r.thread_id)
     UNION
     SELECT thread_id FROM orchestration_v2_projection_threads
-    WHERE json_extract(payload_json, '$.limitRecovery') IS NOT NULL`;
+    WHERE json_extract(payload_json, '$.limitRecovery') IS NOT NULL
+      OR json_extract(payload_json, '$.connectionRecovery') IS NOT NULL`;
 
   // Clone or drop whole thread families to preserve fork and subagent lineage reads.
   yield* sql`CREATE TEMP TABLE thread_families AS

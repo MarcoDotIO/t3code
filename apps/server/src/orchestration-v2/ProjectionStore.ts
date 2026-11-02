@@ -509,6 +509,10 @@ export interface ProjectionStoreV2Shape {
     readonly snooze: boolean;
   }) => Effect.Effect<ReadonlyArray<ProjectionLimitRecoveryCandidate>, ProjectionStoreV2Error>;
   /** Epoch ms of the next armed reset or snooze end after `now`, when a waiting thread becomes a candidate. */
+  /** Threads whose connection recovery may need a step: an active marker or a recent failure. */
+  readonly getConnectionRecoveryThreadIds: (
+    failedSince: DateTime.Utc,
+  ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionStoreV2Error>;
   readonly getLimitRecoveryWakeAt: (
     now: DateTime.Utc,
   ) => Effect.Effect<number | null, ProjectionStoreV2Error>;
@@ -1596,6 +1600,7 @@ export function threadShellFromProjection(
     opens: projection.thread.opens ?? null,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
+    connectionRecovery: projection.thread.connectionRecovery ?? null,
     deletedAt: projection.thread.deletedAt,
   };
 }
@@ -1862,6 +1867,7 @@ function shellFromState(input: {
     opens: input.state.thread.opens ?? null,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     limitRecovery: input.state.thread.limitRecovery ?? null,
+    connectionRecovery: input.state.thread.connectionRecovery ?? null,
     deletedAt: input.state.thread.deletedAt,
   };
 }
@@ -3981,6 +3987,30 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           (value): value is number => value != null,
         );
         return wakes.length === 0 ? null : Math.round(Math.min(...wakes));
+      },
+      Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+    );
+
+    const getConnectionRecoveryThreadIds = Effect.fn(
+      "ProjectionStore.getConnectionRecoveryThreadIds",
+    )(
+      function* (failedSince: DateTime.Utc) {
+        const rows = yield* sql<{ readonly thread_id: string }>`
+          SELECT t.thread_id
+          FROM orchestration_v2_projection_threads t
+          WHERE t.deleted_at IS NULL
+            AND (
+              json_extract(t.payload_json, '$.connectionRecovery.status') IN ('waiting', 'resuming', 'resumed')
+              OR t.thread_id IN (
+                SELECT failure.thread_id FROM orchestration_v2_projection_turn_items failure
+                WHERE failure.type = 'error' AND failure.status = 'failed'
+                  AND failure.updated_at >= ${DateTime.formatIso(failedSince)}
+                  AND json_extract(failure.payload_json, '$.failure.class') = 'transport_error'
+              )
+            )
+          ORDER BY t.thread_id
+        `;
+        return rows.map((row) => ThreadId.make(row.thread_id));
       },
       Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
     );
@@ -7105,6 +7135,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getProviderControlContext: readOnReader(getProviderControlContext),
       getLimitRecoveryCandidates: readOnReader(getLimitRecoveryCandidates),
       getLimitRecoveryWakeAt: readOnReader(getLimitRecoveryWakeAt),
+      getConnectionRecoveryThreadIds: readOnReader(getConnectionRecoveryThreadIds),
       getRecoveryThreadIds: readOnReader(getRecoveryThreadIds),
       getUnreadableThreadIds: readOnReader(getUnreadableThreadIds),
       getThreadSnapshot: readOnReader(getThreadSnapshot),

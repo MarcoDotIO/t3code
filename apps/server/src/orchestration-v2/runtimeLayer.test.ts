@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
+  DEFAULT_SERVER_SETTINGS,
   type ApplicationStoredEvent,
   CheckpointId,
   CheckpointRef,
@@ -18,6 +19,7 @@ import {
   TurnItemId,
   type ModelSelection,
   type OrchestrationV2Run,
+  type OrchestrationV2ServerCommand,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2RuntimeRequest,
   ProjectId,
@@ -60,6 +62,7 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
+import * as ConnectionLossRecoveryWorker from "./ConnectionLossRecoveryWorker.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import { ROLLBACK_FAILED_MESSAGE } from "./CheckpointRollbackService.ts";
 import * as EffectWorker from "./EffectWorker.ts";
@@ -7861,6 +7864,400 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
         }
         assert.lengthOf((yield* orchestrator.getThreadProjection(threadId)).runs, 3);
       }),
+  );
+
+  it.effect("sweeps a confirmed connection failure through to a resumed task", () =>
+    Effect.gen(function* () {
+      const real = yield* Orchestrator.OrchestratorV2;
+      const events = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("connection:sweep");
+      const projectId = ProjectId.make("connection:project:sweep");
+      yield* seedProject({
+        projectId,
+        title: "Connection project",
+        workspaceRoot: process.cwd(),
+        defaultModelSelection: modelSelection,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
+      });
+      yield* real.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("connection:sweep:create"),
+        threadId,
+        projectId,
+        title: "Interrupted thread",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* real.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("connection:sweep:message"),
+        threadId,
+        messageId: MessageId.make("connection:sweep:message"),
+        text: "Work on this.",
+        attachments: [],
+        dispatchMode: { type: "defer_start" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const run = (yield* real.getThreadProjection(threadId)).runs[0]!;
+      const now = yield* DateTime.now;
+      yield* events.write({
+        commandId: CommandId.make("connection:sweep:failure"),
+        events: [
+          {
+            id: EventId.make("connection:sweep:run"),
+            type: "run.updated",
+            threadId,
+            occurredAt: now,
+            payload: { ...run, status: "failed", completedAt: now },
+          },
+          {
+            id: EventId.make("connection:sweep:error"),
+            type: "turn-item.updated",
+            threadId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make("connection:sweep:error"),
+              type: "error",
+              threadId,
+              runId: run.id,
+              nodeId: run.rootNodeId,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 2,
+              status: "failed",
+              title: "Provider error",
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              failure: {
+                class: "transport_error",
+                message: "stream disconnected",
+                code: "responseStreamDisconnected",
+                retryable: null,
+              },
+            },
+          },
+        ],
+      });
+      // Every command the worker sends is a milestone the test can await without polling.
+      const sent = yield* Queue.unbounded<OrchestrationV2ServerCommand>();
+      const send = (command: OrchestrationV2ServerCommand) =>
+        real.dispatch(command).pipe(Effect.tap(() => Queue.offer(sent, command)));
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const worker = ConnectionLossRecoveryWorker.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Scheduler.layer,
+            Layer.succeed(ProjectionStore.ProjectionStoreV2, projections),
+            Layer.succeed(Orchestrator.OrchestratorV2, { ...real, dispatch: send }),
+            Layer.mock(ThreadManagementService.ThreadManagementService)({
+              dispatch: send as never,
+            }),
+            Layer.mock(ServerSettings.ServerSettingsService)({
+              getSettings: Effect.succeed({
+                ...DEFAULT_SERVER_SETTINGS,
+                resumeThreadsAfterConnectionLoss: true,
+              }),
+              streamChanges: Stream.never,
+            }),
+            Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+              getInstance: (() =>
+                Effect.succeed({ checkConnection: Effect.succeed("reachable") })) as never,
+            }),
+          ),
+        ),
+      );
+      const marker = () =>
+        real
+          .getThreadProjection(threadId)
+          .pipe(Effect.map(({ thread }) => thread.connectionRecovery));
+      yield* Effect.gen(function* () {
+        assert.equal((yield* Queue.take(sent)).type, "thread.connection-recovery.update");
+        assert.deepInclude(yield* marker(), { runId: run.id, status: "waiting", attempt: 1 });
+
+        yield* TestClock.adjust("5 seconds");
+        const resume = yield* Queue.take(sent);
+        assert(resume.type === "message.dispatch");
+        assert.equal(resume.connectionLossContinuationOfRunId, run.id);
+        assert.deepInclude(yield* marker(), { runId: run.id, status: "resuming" });
+        const projection = yield* real.getThreadProjection(threadId);
+        const continuation = projection.runs.find(
+          (candidate) => candidate.connectionLossContinuationOfRunId === run.id,
+        )!;
+        assert.lengthOf(projection.runs, 2);
+
+        // Starting is not progress, so the notice waits for the provider to do something.
+        yield* TestClock.adjust("5 seconds");
+        assert.deepInclude(yield* marker(), { status: "resuming" });
+
+        const later = yield* DateTime.now;
+        yield* events.write({
+          commandId: CommandId.make("connection:sweep:progress"),
+          events: [
+            {
+              id: EventId.make("connection:sweep:continuation"),
+              type: "run.updated",
+              threadId,
+              occurredAt: later,
+              payload: { ...continuation, status: "running", startedAt: later },
+            },
+            {
+              id: EventId.make("connection:sweep:assistant"),
+              type: "turn-item.updated",
+              threadId,
+              occurredAt: later,
+              payload: {
+                id: TurnItemId.make("connection:sweep:assistant"),
+                type: "assistant_message",
+                threadId,
+                runId: continuation.id,
+                nodeId: continuation.rootNodeId,
+                providerThreadId: null,
+                providerTurnId: null,
+                nativeItemRef: null,
+                parentItemId: null,
+                ordinal: 3,
+                status: "running",
+                title: "Assistant",
+                startedAt: later,
+                completedAt: null,
+                updatedAt: later,
+                messageId: MessageId.make("connection:sweep:assistant"),
+                streaming: true,
+                text: "Picking this back up.",
+              },
+            },
+          ],
+        });
+        yield* TestClock.adjust("5 seconds");
+        assert.equal((yield* Queue.take(sent)).type, "thread.connection-recovery.update");
+        assert.deepInclude(yield* marker(), { status: "resumed" });
+
+        yield* TestClock.adjust("5 seconds");
+        assert.equal((yield* Queue.take(sent)).type, "thread.connection-recovery.update");
+        assert.isNull(yield* marker());
+        assert.lengthOf((yield* real.getThreadProjection(threadId)).runs, 2);
+      }).pipe(Effect.provide(worker));
+    }),
+  );
+
+  it.effect.each([
+    "resume",
+    "duplicate",
+    "stop",
+    "newer-message",
+    "stale-update",
+    "not-armed",
+    "archive",
+  ] as const)("guards a connection-loss continuation against %s", (scenario) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const events = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = ThreadId.make(`connection:${scenario}`);
+      const projectId = ProjectId.make(`connection:project:${scenario}`);
+      yield* seedProject({
+        projectId,
+        title: "Connection project",
+        workspaceRoot: process.cwd(),
+        defaultModelSelection: modelSelection,
+        createdAt: DateTime.formatIso(yield* DateTime.now),
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`connection:create:${scenario}`),
+        threadId,
+        projectId,
+        title: "Interrupted thread",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`connection:message:${scenario}`),
+        threadId,
+        messageId: MessageId.make(`connection:message:${scenario}`),
+        text: "Work on this.",
+        attachments: [],
+        dispatchMode: { type: "defer_start" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const run = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+      const now = yield* DateTime.now;
+      const nowIso = DateTime.formatIso(now);
+      yield* events.write({
+        commandId: CommandId.make(`connection:failure:${scenario}`),
+        events: [
+          {
+            id: EventId.make(`connection:run:${scenario}`),
+            type: "run.updated",
+            threadId,
+            occurredAt: now,
+            payload: { ...run, status: "failed", completedAt: now },
+          },
+          {
+            id: EventId.make(`connection:error:${scenario}`),
+            type: "turn-item.updated",
+            threadId,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make(`connection:error:${scenario}`),
+              type: "error",
+              threadId,
+              runId: run.id,
+              nodeId: run.rootNodeId,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 2,
+              status: "failed",
+              title: "Provider error",
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              failure: {
+                class: "transport_error",
+                message: "stream disconnected",
+                code: "responseStreamDisconnected",
+                retryable: null,
+              },
+            },
+          },
+        ],
+      });
+      assert.include(
+        yield* projections.getConnectionRecoveryThreadIds(DateTime.subtract(now, { minutes: 10 })),
+        threadId,
+      );
+      assert.notInclude(
+        yield* projections.getConnectionRecoveryThreadIds(DateTime.add(now, { seconds: 1 })),
+        threadId,
+      );
+      const waiting = {
+        runId: run.id,
+        status: "waiting",
+        attempt: 1,
+        since: nowIso,
+      } as const;
+      const continueRun = (id: string) =>
+        orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make(`connection:continue:${scenario}:${id}`),
+          threadId,
+          messageId: MessageId.make(`connection:continue:${scenario}:${id}`),
+          text: "Continue where you left off.",
+          notification: {
+            source: { kind: "system" },
+            outcome: "updated",
+            summary: "Connection restored, resuming this turn",
+            detail: "Continue where you left off.",
+          },
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "agent",
+          creationSource: "server",
+          connectionLossContinuationOfRunId: run.id,
+        });
+      const read = () => orchestrator.getThreadProjection(threadId);
+      if (scenario !== "not-armed") {
+        yield* orchestrator.dispatch({
+          type: "thread.connection-recovery.update",
+          commandId: CommandId.make(`connection:arm:${scenario}`),
+          threadId,
+          expected: null,
+          connectionRecovery: waiting,
+        });
+        assert.deepEqual(
+          (yield* orchestrator.getShellSnapshot()).threads.find((thread) => thread.id === threadId)
+            ?.connectionRecovery,
+          waiting,
+        );
+      }
+      if (scenario === "stale-update") {
+        yield* orchestrator.dispatch({
+          type: "thread.connection-recovery.update",
+          commandId: CommandId.make("connection:stale"),
+          threadId,
+          expected: null,
+          connectionRecovery: null,
+        });
+        assert.deepEqual((yield* read()).thread.connectionRecovery, waiting);
+        return;
+      }
+      if (scenario === "stop") {
+        yield* orchestrator.dispatch({
+          type: "thread.stop",
+          commandId: CommandId.make("connection:stop"),
+          threadId,
+        });
+        assert.isNull((yield* read()).thread.connectionRecovery);
+        // A sweep that read the thread before Stop committed cannot arm it again.
+        yield* orchestrator.dispatch({
+          type: "thread.connection-recovery.update",
+          commandId: CommandId.make("connection:rearm"),
+          threadId,
+          expected: null,
+          connectionRecovery: waiting,
+        });
+        assert.isNull((yield* read()).thread.connectionRecovery);
+      }
+      if (scenario === "archive") {
+        yield* orchestrator.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("connection:archive"),
+          threadId,
+        });
+      }
+      if (scenario === "newer-message") {
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("connection:newer"),
+          threadId,
+          messageId: MessageId.make("connection:newer"),
+          text: "Do this instead.",
+          attachments: [],
+          dispatchMode: { type: "defer_start" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+      }
+      const runsBefore = (yield* read()).runs.length;
+      yield* continueRun("first");
+      if (scenario === "duplicate") yield* continueRun("second");
+      const current = yield* read();
+      if (scenario === "resume" || scenario === "duplicate") {
+        assert.lengthOf(current.runs, runsBefore + 1);
+        const continuation = current.runs.at(-1)!;
+        assert.equal(continuation.connectionLossContinuationOfRunId, run.id);
+        assert.isUndefined(continuation.restartContinuationOfRunId);
+        assert.deepInclude(current.thread.connectionRecovery, {
+          runId: run.id,
+          status: "resuming",
+        });
+        // The transcript gains a system notice, never a replayed or second user message.
+        assert.lengthOf(
+          current.messages.filter((message) => message.notification === undefined),
+          1,
+        );
+        return;
+      }
+      assert.lengthOf(current.runs, runsBefore);
+    }),
   );
 
   it.effect.each([

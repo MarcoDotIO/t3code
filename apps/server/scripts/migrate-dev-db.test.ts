@@ -57,6 +57,13 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
           '{"limitRecovery":{"autoResume":true}}',
           "2026-08-05",
         ],
+        [
+          "connection-thread",
+          "project-kept",
+          "completed",
+          '{"connectionRecovery":{"status":"waiting"}}',
+          "2026-08-05",
+        ],
         ["subagent-parent", "project-kept", "completed", "{}", "2026-08-05"],
         ["subagent-child", "project-kept", "completed", subagentPayload, "2026-08-05"],
         ["deleted-project-thread", "project-deleted", "completed", "{}", "2026-08-05"],
