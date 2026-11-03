@@ -5,6 +5,16 @@ import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/tool
 // Search results stay on the timeline wire, so keep their text a preview.
 const SEARCH_PREVIEW_MAX_CHARS = 8_000;
 
+// Emitted with empty input while the model streams it, and a patch names its files in its body.
+const NATIVE_FILE_CHANGE_TOOLS: ReadonlySet<string> = new Set([
+  "edit",
+  "multiedit",
+  "write",
+  "patch",
+  "apply_patch",
+]);
+const FILE_PATH_KEYS = ["filePath", "path", "file"] as const;
+
 type ToolItemBase = Omit<
   Extract<OrchestrationV2TurnItem, { type: "dynamic_tool" }>,
   "type" | "toolName" | "input" | "output"
@@ -12,6 +22,7 @@ type ToolItemBase = Omit<
 
 function openCodeToolProjectionKind(
   toolName: string,
+  input: Record<string, unknown>,
 ): "command_execution" | "file_change" | "file_search" | "web_search" | "dynamic_tool" {
   if (resolveT3McpToolId(toolName) !== null) return "dynamic_tool";
   const normalized = toolName.toLowerCase();
@@ -21,7 +32,13 @@ function openCodeToolProjectionKind(
   if (normalized.includes("bash") || normalized.includes("shell")) {
     return "command_execution";
   }
-  if (normalized.includes("edit") || normalized.includes("write") || normalized.includes("patch")) {
+  // MCP tools only resemble file edits by name (`github_dispatch_workflow`), and a file change row
+  // drops their output, so one must also name a file.
+  if (
+    (normalized.includes("edit") || normalized.includes("write") || normalized.includes("patch")) &&
+    (NATIVE_FILE_CHANGE_TOOLS.has(normalized) ||
+      recordString(input, ...FILE_PATH_KEYS) !== undefined)
+  ) {
     return "file_change";
   }
   if (normalized.includes("web") || normalized === "codesearch" || normalized === "code_search") {
@@ -91,7 +108,7 @@ export function openCodeToolTurnItem(
   },
 ): OrchestrationV2TurnItem {
   const { input, output } = tool;
-  switch (openCodeToolProjectionKind(tool.name)) {
+  switch (openCodeToolProjectionKind(tool.name, input)) {
     case "command_execution": {
       const exitCode = recordNumber(tool.completedMetadata, "exit", "exitCode");
       return {
@@ -111,7 +128,7 @@ export function openCodeToolTurnItem(
       return {
         ...base,
         type: "file_change",
-        fileName: recordString(input, "filePath", "path", "file") ?? tool.name,
+        fileName: recordString(input, ...FILE_PATH_KEYS) ?? tool.name,
         ...(oldStr === undefined ? {} : { oldStr }),
         ...(newStr === undefined ? {} : { newStr }),
         ...(diffStr === undefined ? {} : { diffStr }),
