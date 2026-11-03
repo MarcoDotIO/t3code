@@ -139,7 +139,7 @@ export function parseGitRemoteRepository(
 ): { readonly host: string; readonly path: string } | null {
   const normalized = lowerCaseRemote(value);
 
-  if (/^(?:ssh|https?|git):\/\//i.test(normalized)) {
+  if (/^(?:ssh|git\+ssh|ssh\+git|https?|git):\/\//i.test(normalized)) {
     try {
       const url = new URL(normalized);
       const repositorySegments = url.pathname.split("/").filter((segment) => segment.length > 0);

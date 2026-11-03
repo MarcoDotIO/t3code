@@ -51,6 +51,34 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
+  it.effect.each(["git+ssh", "ssh+git"] as const)(
+    "identifies the repository of a %s:// remote",
+    (scheme) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-repository-identity-ssh-scheme-",
+        });
+
+        yield* git(cwd, ["init"]);
+        yield* git(cwd, [
+          "remote",
+          "add",
+          "origin",
+          `${scheme}://git@github.com/T3Tools/t3code.git`,
+        ]);
+
+        const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+        const identity = yield* resolver.resolve(cwd);
+
+        expect(identity?.canonicalKey).toBe("github.com/t3tools/t3code");
+        expect(identity?.provider).toBe("github");
+        expect(identity?.displayName).toBe("T3Tools/t3code");
+        expect(identity?.owner).toBe("T3Tools");
+        expect(identity?.name).toBe("t3code");
+      }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
   it.effect("resolves the fetch remote of a partial clone", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

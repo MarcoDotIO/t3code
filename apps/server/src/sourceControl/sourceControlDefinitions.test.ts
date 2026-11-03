@@ -10,3 +10,14 @@ it("runs a driver for every host the server and clients read, in their order", (
     sourceControlDefinitions.definitions,
   );
 });
+
+it.each(["ssh", "git+ssh", "ssh+git"])(
+  "does not take the port of a %s:// remote for the web server's",
+  (scheme) => {
+    expect(
+      sourceControlDefinitions.recognizeRemote(
+        `${scheme}://git@github.example.com:2222/team/project.git`,
+      ),
+    ).toMatchObject({ kind: "github", baseUrl: "https://github.example.com" });
+  },
+);

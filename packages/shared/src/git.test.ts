@@ -14,6 +14,7 @@ import {
   sanitizeFeatureBranchName,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+import { isSshRemoteUrl } from "./sourceControl.ts";
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {
@@ -26,6 +27,16 @@ describe("normalizeGitRemoteUrl", () => {
     expect(normalizeGitRemoteUrl("ssh://git@github.com/T3Tools/T3Code")).toBe(
       "github.com/t3tools/t3code",
     );
+  });
+
+  it.each(["git+ssh", "ssh+git"])("reads %s:// remotes as the SSH remotes they are", (scheme) => {
+    expect(normalizeGitRemoteUrl(`${scheme}://git@github.com/T3Tools/T3Code.git`)).toBe(
+      "github.com/t3tools/t3code",
+    );
+    expect(normalizeGitRemoteUrl(`${scheme}://git@gitlab.company.com:2222/team/project.git`)).toBe(
+      "gitlab.company.com/team/project",
+    );
+    expect(isSshRemoteUrl(`${scheme}://git@github.com/T3Tools/T3Code.git`)).toBe(true);
   });
 
   it("preserves nested group paths for providers like GitLab", () => {
