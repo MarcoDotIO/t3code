@@ -124,6 +124,7 @@ function codexAccountAuthLabel(
   if (!account) return undefined;
   if (account.type === "apiKey") return "OpenAI API Key";
   if (account.type === "amazonBedrock") return "Amazon Bedrock";
+  if (account.type === "gcp") return "Google Cloud Vertex AI";
   if (account.type !== "chatgpt") return undefined;
   // account/read takes the plan from the cached login token; the usage read asks the backend.
   const usageLabel = usagePlanType === "unknown" ? undefined : codexPlanLabel(usagePlanType);

@@ -514,6 +514,38 @@ it.layer(
       }),
     );
 
+    it.effect("reports a Codex account on Google Cloud as ready", () =>
+      Effect.gen(function* () {
+        if ((yield* HostProcess.Platform) === "win32") return;
+        const { binaryPath } = yield* writeFakeCodexCli(
+          [
+            `[ "$1" = "--version" ] && { echo "codex-cli 0.165.0"; exit 0; }`,
+            `while IFS= read -r line; do`,
+            `  id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9]*\\).*/\\1/p')`,
+            `  case "$line" in`,
+            `    *'"method":"initialize"'*) result='{"userAgent":"codex/0.165.0","codexHome":"/tmp/codex-home","platformFamily":"unix","platformOs":"macos"}' ;;`,
+            `    *'"method":"account/read"'*) result='{"account":{"type":"gcp"},"requiresOpenaiAuth":false}' ;;`,
+            `    *'"method":"skills/list"'*) result='{"data":[]}' ;;`,
+            `    *'"method":"model/list"'*) result='{"data":[],"nextCursor":null}' ;;`,
+            `    *'"method":"config/read"'*) result='{"config":{},"origins":{}}' ;;`,
+            `    *'"method":"account/rateLimits/read"'*) printf '{"id":%s,"error":{"code":-32600,"message":"no usage"}}\\n' "$id"; continue ;;`,
+            `    *) continue ;;`,
+            `  esac`,
+            `  printf '{"id":%s,"result":%s}\\n' "$id" "$result"`,
+            `done`,
+          ].join("\n"),
+        );
+
+        const status = yield* checkCodexProviderStatus(decodeCodexSettings({ binaryPath }));
+
+        assert.strictEqual(status.status, "ready");
+        assert.strictEqual(status.message, undefined);
+        assert.strictEqual(status.auth.status, "authenticated");
+        assert.strictEqual(status.auth.type, "gcp");
+        assert.strictEqual(status.auth.label, "Google Cloud Vertex AI");
+      }),
+    );
+
     it.effect("keeps a prerelease --version unclassified instead of reading it as stable", () =>
       Effect.gen(function* () {
         if ((yield* HostProcess.Platform) === "win32") return;
