@@ -1337,6 +1337,68 @@ it.layer(NodeServices.layer)("AgentSessionScanner", (it) => {
       }),
     );
 
+    it.effect("drops Codex turns that a later rollback removed", () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const nowMs = Date.parse("2026-08-24T12:00:00.000Z");
+        yield* TestClock.setTime(nowMs);
+        const claudeHomePath = yield* makeTempDir("t3code-claude-home-");
+        const codexHomePath = yield* makeTempDir("t3code-codex-home-");
+        const workspace = yield* makeTempDir("t3code-workspace-");
+        const event = (payload: Record<string, unknown>) =>
+          encodeTranscriptRecord({ type: "event_msg", payload });
+        const assistant = (text: string) =>
+          encodeTranscriptRecord({
+            type: "response_item",
+            payload: {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text }],
+            },
+          });
+        const turn = (id: string, prompts: ReadonlyArray<string>, reply: string) => [
+          event({ type: "task_started", turn_id: id }),
+          ...prompts.map((message) => event({ type: "user_message", message })),
+          assistant(reply),
+          event({ type: "task_complete", turn_id: id }),
+        ];
+
+        yield* writeTranscript({
+          filePath: path.join(
+            codexHomePath,
+            "sessions",
+            "2026",
+            "08",
+            "24",
+            "rollout-rolled-back.jsonl",
+          ),
+          contents: [
+            encodeTranscriptRecord({
+              type: "session_meta",
+              payload: { id: "rolled-back-session", cwd: workspace },
+            }),
+            ...turn("turn-1", ["Keep the first request"], "First reply"),
+            ...turn("turn-2", ["Undo this request", "Undo this steer"], "Undone reply"),
+            ...turn("turn-3", ["Undo this too"], "Second undone reply"),
+            event({ type: "thread_rolled_back", num_turns: 2 }),
+            ...turn("turn-4", ["Ask again"], "Final reply"),
+          ].join("\n"),
+          mtimeMs: nowMs,
+        });
+
+        const threads = yield* runRecentThreads({
+          claudeHomePath,
+          codexHomePath,
+          workspaceRoot: workspace,
+        });
+
+        expect(threads.map((thread) => thread.messages.map((message) => message.text))).toEqual([
+          ["Keep the first request", "First reply", "Ask again", "Final reply"],
+        ]);
+        expect(threads[0]?.omittedMessageCount).toBe(0);
+      }),
+    );
+
     it.effect("excludes Codex subagents from discovery and the recent-thread budget", () =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
@@ -2754,5 +2816,49 @@ describe("parseAgentSessionTranscript", () => {
     });
 
     expect(thread).toBeNull();
+  });
+
+  it("counts one rolled-back Codex turn per prompt in rollouts without turn events", () => {
+    const prompt = (message: string) =>
+      encodeTranscriptRecord({ type: "event_msg", payload: { type: "user_message", message } });
+    const reply = (text: string) =>
+      encodeTranscriptRecord({
+        type: "response_item",
+        payload: { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+      });
+    const thread = AgentSessionScanner.parseAgentSessionTranscript({
+      contents: [
+        encodeTranscriptRecord({ type: "session_meta", payload: { id: "codex-session" } }),
+        prompt("Keep the first request"),
+        reply("First reply"),
+        encodeTranscriptRecord({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Undo this request" }],
+          },
+        }),
+        prompt("Undo this request"),
+        reply("Undone reply"),
+        encodeTranscriptRecord({
+          type: "event_msg",
+          payload: { type: "thread_rolled_back", num_turns: 1 },
+        }),
+        prompt("Ask again"),
+        reply("Final reply"),
+      ].join("\n"),
+      source: "codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      fallbackSessionId: "fallback",
+      lastActiveAtMs: Date.parse("2026-08-24T12:00:00.000Z"),
+    });
+
+    expect(thread?.messages.map((message) => message.text)).toEqual([
+      "Keep the first request",
+      "First reply",
+      "Ask again",
+      "Final reply",
+    ]);
   });
 });

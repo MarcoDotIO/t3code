@@ -120,6 +120,7 @@ const TranscriptRecord = Schema.Struct({
       message: Schema.optional(Schema.String),
       model: Schema.optional(Schema.String),
       cwd: Schema.optional(Schema.String),
+      num_turns: Schema.optional(Schema.Number),
       content: Schema.optional(Schema.Array(TranscriptContentBlock)),
       internal_chat_message_metadata_passthrough: Schema.optional(Schema.Unknown),
     }),
@@ -435,15 +436,47 @@ function parseAgentSessionRecords(
     canonicalUserTextsInTurn = new Set();
     responseUsersInTurn = [];
   };
+  // Codex keeps rolled-back turns in the rollout and hides the last `num_turns`
+  // when it rebuilds the thread. A turn runs from task_started; rollouts without
+  // turn events start one at each prompt, including the response copies before it.
+  const rolledBackCodexRecords: Array<readonly [start: number, end: number]> = [];
   if (input.source === "codex") {
+    const turnStarts: Array<number> = [];
+    let turnOpen = false;
+    let firstResponseUserIndex: number | undefined;
     let recordIndex = -1;
     for (const record of records) {
       recordIndex += 1;
+      if (record.type === "event_msg") {
+        switch (record.payload?.type) {
+          case "task_started":
+            turnStarts.push(recordIndex);
+            turnOpen = true;
+            break;
+          case "task_complete":
+            turnOpen = false;
+            break;
+          case "user_message":
+            if (!turnOpen) turnStarts.push(firstResponseUserIndex ?? recordIndex);
+            firstResponseUserIndex = undefined;
+            break;
+          case "thread_rolled_back": {
+            const keptTurns = Math.max(0, turnStarts.length - (record.payload.num_turns ?? 0));
+            const start = turnStarts[keptTurns];
+            if (start !== undefined) rolledBackCodexRecords.push([start, recordIndex]);
+            turnStarts.length = keptTurns;
+            turnOpen = false;
+            firstResponseUserIndex = undefined;
+            break;
+          }
+        }
+      }
       if (
         record.type === "response_item" &&
         record.payload?.type === "message" &&
         record.payload.role === "assistant"
       ) {
+        firstResponseUserIndex = undefined;
         finishCodexTurn();
         continue;
       }
@@ -457,6 +490,7 @@ function parseAgentSessionRecords(
         record.payload?.type === "message" &&
         record.payload.role === "user"
       ) {
+        firstResponseUserIndex ??= recordIndex;
         const turnId = codexTurnId(record.payload.internal_chat_message_metadata_passthrough);
         const text = extractText(record.payload.content);
         if (turnId !== null && text.length > 0) {
@@ -501,6 +535,9 @@ function parseAgentSessionRecords(
   let recordIndex = -1;
   for (const record of input.source === "pi" ? activePiBranch(records) : records) {
     recordIndex += 1;
+    if (rolledBackCodexRecords.some(([start, end]) => recordIndex >= start && recordIndex < end)) {
+      continue;
+    }
     if (input.source === "pi") {
       if (!isPiConversationRecord(record)) continue;
       const text = extractText(record.message.content);
@@ -634,7 +671,11 @@ function shouldRetainDecodedRecord(
   return (
     record.type === "session_meta" ||
     record.type === "turn_context" ||
-    (record.type === "event_msg" && record.payload?.type === "user_message") ||
+    (record.type === "event_msg" &&
+      (record.payload?.type === "user_message" ||
+        record.payload?.type === "task_started" ||
+        record.payload?.type === "task_complete" ||
+        record.payload?.type === "thread_rolled_back")) ||
     (record.type === "response_item" &&
       record.payload?.type === "message" &&
       (record.payload.role === "user" || record.payload.role === "assistant"))
