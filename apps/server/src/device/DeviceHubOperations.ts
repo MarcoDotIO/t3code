@@ -142,7 +142,9 @@ export const makeDeviceHubOperations = (options: {
       for (const name of (avds.code === 0 ? avds.stdout : "")
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter(Boolean)) {
+        // Newer emulators also print log lines such as "INFO    | Storing crashdata in: …" to
+        // stdout; AVD names cannot contain whitespace.
+        .filter((line) => line !== "" && !/\s/.test(line))) {
         if (!devices.some((device) => device.platform === "android" && device.name === name)) {
           devices.push({
             id: name,
