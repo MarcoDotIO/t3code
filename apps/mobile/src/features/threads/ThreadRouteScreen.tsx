@@ -665,6 +665,7 @@ function ThreadRouteContent(
     const result = await resumeThread({
       thread: selectedThread,
       resumableRunId: composer.resumableRunId,
+      promptlessResumeInstanceId: composer.promptlessResumeInstanceId,
       queueHeld: composer.queueHeld,
       runtimeMode: composer.runtimeMode ?? selectedThread.runtimeMode,
       interactionMode: composer.interactionMode ?? selectedThread.interactionMode,

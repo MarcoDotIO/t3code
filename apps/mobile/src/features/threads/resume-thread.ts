@@ -9,6 +9,7 @@ import type {
   EnvironmentId,
   MessageId,
   ModelSelection,
+  ProviderInstanceId,
   ProviderInteractionMode,
   RunId,
   RuntimeMode,
@@ -29,6 +30,8 @@ export async function resumeThread<E>(input: {
     readonly interactionMode: ProviderInteractionMode;
   };
   readonly resumableRunId: RunId | null;
+  /** The provider instance that continues the resumable run without a prompt, if any. */
+  readonly promptlessResumeInstanceId: ProviderInstanceId | null;
   readonly queueHeld: boolean;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
@@ -59,6 +62,9 @@ export async function resumeThread<E>(input: {
       });
       if (saved._tag === "Failure") return saved;
     }
+    const promptlessId = input.promptlessResumeInstanceId;
+    const promptless =
+      promptlessId !== null && (input.modelSelection?.instanceId ?? promptlessId) === promptlessId;
     const continued = await input.startTurn({
       environmentId,
       input: {
@@ -69,7 +75,7 @@ export async function resumeThread<E>(input: {
         message: {
           messageId: input.messageId,
           role: "user",
-          text: "Continue where you left off.",
+          text: promptless ? "" : "Continue where you left off.",
           attachments: [],
         },
         runtimeMode,

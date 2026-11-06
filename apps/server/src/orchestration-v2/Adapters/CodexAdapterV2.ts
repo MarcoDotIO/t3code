@@ -32,6 +32,7 @@ import {
   CodexSettings,
   defaultInstanceIdForDriver,
   isOrchestrationV2WorkActive,
+  isPromptlessMessage,
   type OrchestrationV2GoalCommand,
   OrchestrationV2ProviderGoal,
   parseGoalCommand,
@@ -262,6 +263,7 @@ export const CodexProviderCapabilitiesV2 = {
     supportsActiveSteering: true,
     supportsSteeringByInterruptRestart: true,
     supportsQueuedMessages: true,
+    supportsPromptlessContinuation: true,
     terminalStatusQuality: "strong",
   },
   streaming: {
@@ -7243,9 +7245,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 : null;
             if (goalCommand !== null) return runGoalCommand(turnInput, goalCommand);
             return Effect.gen(function* () {
+              // An idle Codex thread starts a turn from empty input without a user message.
               yield* startNativeTurn(
                 turnInput,
-                turnInput.restartContinuationOfRunId === undefined
+                turnInput.restartContinuationOfRunId === undefined &&
+                  !isPromptlessMessage(turnInput.message)
                   ? yield* toCodexInput(turnInput)
                   : [],
               );

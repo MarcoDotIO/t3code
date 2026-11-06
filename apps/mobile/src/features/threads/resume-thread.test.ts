@@ -1,4 +1,4 @@
-import { EnvironmentId, MessageId, RunId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
@@ -26,6 +26,7 @@ function setup(options: { readonly startTurnFails?: boolean } = {}) {
     runtimeMode: "full-access",
     interactionMode: "default",
     modelSelection: null,
+    promptlessResumeInstanceId: null,
     messageId: MessageId.make("message"),
     createdAt: "2026-10-30T00:00:00.000Z",
     setRuntimeMode: record("setRuntimeMode"),
@@ -79,6 +80,26 @@ describe("resumeThread", () => {
       "setInteractionMode",
       "startTurn",
     ]);
+  });
+
+  it.each([
+    { selected: undefined, text: "" },
+    { selected: "codex", text: "" },
+    { selected: "claude", text: "Continue where you left off." },
+  ])("resumes without a prompt only on that provider (selected $selected)", async (input) => {
+    const { calls, base } = setup();
+    await resumeThread({
+      ...base,
+      resumableRunId: runId,
+      queueHeld: false,
+      promptlessResumeInstanceId: ProviderInstanceId.make("codex"),
+      modelSelection:
+        input.selected === undefined
+          ? null
+          : { instanceId: ProviderInstanceId.make(input.selected), model: "model" },
+    });
+
+    expect(calls[0]?.input).toMatchObject({ message: { text: input.text } });
   });
 
   it("resumes a held queue directly when no run needs continuing", async () => {

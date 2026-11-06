@@ -46,6 +46,7 @@ import {
   EraserIcon,
   GitForkIcon,
   MessageSquareIcon,
+  PlayIcon,
 } from "lucide-react";
 
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
@@ -601,6 +602,11 @@ function EnvironmentHandoffRow({
 /** Marks where `/clear` or an automation started a new provider session in this thread. */
 export function FreshSessionRow() {
   return <TimelineSystemDivider label="New session" icon={EraserIcon} />;
+}
+
+/** A resume that continued the provider without a prompt. */
+export function PromptlessResumeRow() {
+  return <TimelineSystemDivider label="Resumed" icon={PlayIcon} />;
 }
 
 /** A same-harness model or effort change. Shows only what changed. */

@@ -16,6 +16,7 @@ import {
   deriveThreadRuntime,
   threadRuntimeHasInterruptibleRun,
 } from "@t3tools/client-runtime/state/thread-execution";
+import { promptlessResumeInstanceId as resolvePromptlessResumeInstanceId } from "@t3tools/client-runtime/state/thread-workflows";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -387,6 +388,10 @@ export function useThreadComposerState(input: {
   const resumableRunId = selectedThreadProjection
     ? deriveResumableRunId(selectedThreadProjection.projection, selectedThreadRuntime)
     : null;
+  const promptlessResumeInstanceId =
+    selectedThreadProjection && resumableRunId !== null
+      ? resolvePromptlessResumeInstanceId(selectedThreadProjection.projection, resumableRunId)
+      : null;
 
   const runlessWorkStartedAt = selectedThreadProjection
     ? deriveRunlessWorkStartedAt(selectedThreadProjection.projection)
@@ -885,6 +890,7 @@ export function useThreadComposerState(input: {
     canSteerActiveTurn,
     queueHeld,
     resumableRunId,
+    promptlessResumeInstanceId,
     queuedRunEdit,
     isSavingQueuedEdit,
     cancelQueuedRunEdit,

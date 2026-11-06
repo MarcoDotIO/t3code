@@ -47,6 +47,7 @@ import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRunt
 import {
   AuthFilesystemReadScope,
   idleCompactionOf,
+  isPromptlessMessage,
   type OrchestrationMessageContext,
   ThreadId,
   type ChatAttachment,
@@ -1865,6 +1866,14 @@ function renderFeedEntry(
         failed={item.status === "failed"}
       />
     );
+  }
+
+  if (
+    entry.type === "message" &&
+    entry.message.role === "user" &&
+    isPromptlessMessage(entry.message)
+  ) {
+    return <ThreadContextDivider label="Resumed" icon="play" iconColor={iconSubtleColor} />;
   }
 
   if (entry.type === "message") {

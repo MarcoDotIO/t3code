@@ -25,6 +25,7 @@ import {
   type GuestMessageId,
   isCompactionCommandMessage,
   isOrchestrationV2WorkActive,
+  isPromptlessMessage,
   isProviderNativeSubagentThread,
   MessageId,
   type NodeId,
@@ -5635,6 +5636,29 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: "This thread can no longer be resumed from that run.",
         });
       }
+      if (isPromptlessMessage(command)) {
+        const instanceId =
+          command.modelSelection?.instanceId ?? projection.thread.providerInstanceId;
+        const capabilities =
+          instanceId === source.providerInstanceId
+            ? yield* (yield* providerAdapters.get(instanceId).pipe(mapDispatchError(command)))
+                .getCapabilities()
+                .pipe(mapDispatchError(command))
+            : undefined;
+        if (capabilities?.turns.supportsPromptlessContinuation !== true) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "This provider needs a message to resume the thread.",
+          });
+        }
+      }
+    } else if (command.createdBy === "user" && isPromptlessMessage(command)) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "A message needs text or attachments.",
+      });
     }
     if (command.usageLimitContinuationOfRunId !== undefined) {
       const run = usageLimitBlockedRun(projection.runs, projection.turnItems, null);

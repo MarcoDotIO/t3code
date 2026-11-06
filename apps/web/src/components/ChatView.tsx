@@ -91,6 +91,7 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
   getUserQueuedThreadRuns,
+  promptlessResumeInstanceId as resolvePromptlessResumeInstanceId,
   threadSupportsProviderHandoff,
 } from "@t3tools/client-runtime/state/thread-workflows";
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
@@ -822,6 +823,10 @@ export default function ChatView(props: ChatViewProps) {
     !isServerThread || serverProjection === null
       ? null
       : deriveResumableRunId(serverProjection, serverRuntime);
+  const promptlessResumeInstanceId =
+    serverProjection === null || resumableRunId === null
+      ? null
+      : resolvePromptlessResumeInstanceId(serverProjection, resumableRunId);
   const parentSubagentThreadId =
     activeThread?.lineage.relationshipToParent === "subagent"
       ? activeThread.lineage.parentThreadId
@@ -2886,6 +2891,7 @@ export default function ChatView(props: ChatViewProps) {
     currentRouteThreadKeyRef,
     activeThread,
     resumableRunId,
+    promptlessResumeInstanceId,
     hasHeldQueuedRuns,
     isSendBusy,
     isRevertingCheckpoint,

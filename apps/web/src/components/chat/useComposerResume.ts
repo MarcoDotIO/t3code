@@ -1,5 +1,6 @@
 import {
   type EnvironmentId,
+  type ProviderInstanceId,
   type ProviderInteractionMode,
   type RunId,
   type RuntimeMode,
@@ -26,6 +27,8 @@ interface ComposerResumeInput {
   readonly currentRouteThreadKeyRef: { readonly current: string | null };
   readonly activeThread: EnvironmentThreadShell | undefined;
   readonly resumableRunId: RunId | null;
+  /** The provider instance that continues the resumable run without a prompt, if any. */
+  readonly promptlessResumeInstanceId: ProviderInstanceId | null;
   readonly hasHeldQueuedRuns: boolean;
   readonly isSendBusy: boolean;
   readonly isRevertingCheckpoint: boolean;
@@ -48,8 +51,9 @@ interface ComposerResumeInput {
 }
 
 /**
- * Resumes an interrupted run ("Continue where you left off.") and/or releases the turns held
- * in its queue. Shares the per-route send lock with the composer's send paths.
+ * Resumes an interrupted run and/or releases the turns held in its queue. A provider that can
+ * continue without a prompt gets none; others get "Continue where you left off.". Shares the
+ * per-route send lock with the composer's send paths.
  */
 export function useComposerResume(input: ComposerResumeInput) {
   const {
@@ -58,6 +62,7 @@ export function useComposerResume(input: ComposerResumeInput) {
     currentRouteThreadKeyRef,
     activeThread,
     resumableRunId,
+    promptlessResumeInstanceId,
     hasHeldQueuedRuns,
     isSendBusy,
     isRevertingCheckpoint,
@@ -109,6 +114,9 @@ export function useComposerResume(input: ComposerResumeInput) {
       // Read before the first await: the composer follows the route, so after the user switches
       // threads it holds the other thread's model.
       const modelSelection = composerRef.current?.getSendContext().selectedModelSelection;
+      const promptless =
+        promptlessResumeInstanceId !== null &&
+        (modelSelection?.instanceId ?? promptlessResumeInstanceId) === promptlessResumeInstanceId;
       const createdAt = new Date().toISOString();
       const settingsResult = await persistThreadSettingsForNextTurn({
         threadId,
@@ -129,7 +137,7 @@ export function useComposerResume(input: ComposerResumeInput) {
           message: {
             messageId: newMessageId(),
             role: "user",
-            text: "Continue where you left off.",
+            text: promptless ? "" : "Continue where you left off.",
             attachments: [],
           },
           runtimeMode,

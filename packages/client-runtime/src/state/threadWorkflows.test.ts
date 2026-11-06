@@ -4,6 +4,7 @@ import type { OrchestrationV2ThreadProjection } from "@t3tools/contracts";
 import {
   canForkProjectedAssistantItem,
   deriveThreadQueueWorkflowState,
+  promptlessResumeInstanceId,
   resolveLatestMergeBackRun,
   threadSupportsProviderHandoff,
 } from "./threadWorkflows.ts";
@@ -30,6 +31,41 @@ const capabilities = (input?: {
   }) as never;
 
 describe("thread workflows", () => {
+  it("resumes without a prompt only on a session that supports it for the stopped run", () => {
+    const projection = (input: { promptless?: boolean; sessionInstanceId?: string }) =>
+      ({
+        thread: { id: "thread", activeProviderThreadId: "provider-thread" },
+        runs: [{ id: "stopped", status: "interrupted", providerInstanceId: "codex" }],
+        providerThreads: [
+          { id: "provider-thread", appThreadId: "thread", providerSessionId: "session" },
+        ],
+        providerSessions: [
+          {
+            id: "session",
+            status: "ready",
+            providerInstanceId: input.sessionInstanceId ?? "codex",
+            capabilities: {
+              turns:
+                input.promptless === undefined
+                  ? {}
+                  : { supportsPromptlessContinuation: input.promptless },
+            },
+          },
+        ],
+      }) as unknown as OrchestrationV2ThreadProjection;
+    const stopped = "stopped" as OrchestrationV2ThreadProjection["runs"][number]["id"];
+
+    expect(promptlessResumeInstanceId(projection({ promptless: true }), stopped)).toBe("codex");
+    expect(promptlessResumeInstanceId(projection({ promptless: false }), stopped)).toBeNull();
+    expect(promptlessResumeInstanceId(projection({}), stopped)).toBeNull();
+    expect(
+      promptlessResumeInstanceId(
+        projection({ promptless: true, sessionInstanceId: "codex-work" }),
+        stopped,
+      ),
+    ).toBeNull();
+  });
+
   it("allows a completed thread to switch providers after its session detaches", () => {
     const projection = {
       thread: {

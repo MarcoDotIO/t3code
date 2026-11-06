@@ -44,6 +44,7 @@ function composerShowing(selectedModelSelection: typeof threadAModel) {
 function ResumeButton(props: {
   readonly composerRef: ComposerHandleRef;
   readonly persistSettings: () => Promise<AtomCommandResult<void, unknown>>;
+  readonly promptlessResumeInstanceId?: ProviderInstanceId;
 }) {
   const { onResume } = useComposerResume({
     environmentId: EnvironmentId.make("environment:test"),
@@ -51,6 +52,7 @@ function ResumeButton(props: {
     currentRouteThreadKeyRef: { current: "environment:test:thread:a" },
     activeThread: { id: threadA } as never,
     resumableRunId: RunId.make("run:interrupted"),
+    promptlessResumeInstanceId: props.promptlessResumeInstanceId ?? null,
     hasHeldQueuedRuns: false,
     isSendBusy: false,
     isRevertingCheckpoint: false,
@@ -90,4 +92,22 @@ it("continues on the resumed thread's model after the composer moves to another 
     manualContinuationOfRunId: "run:interrupted",
     modelSelection: threadAModel,
   });
+});
+
+it.each([
+  { selected: threadAModel, text: "" },
+  { selected: threadBModel, text: "Continue where you left off." },
+])("resumes without a prompt only on the provider that supports it", async (input) => {
+  const { startedTurn } = setup();
+  await using screen = await render(
+    <ResumeButton
+      composerRef={{ current: composerShowing(input.selected) }}
+      persistSettings={async () => AsyncResult.success(undefined)}
+      promptlessResumeInstanceId={threadAModel.instanceId}
+    />,
+  );
+
+  await screen.getByRole("button", { name: "Resume" }).click();
+
+  expect(await startedTurn.promise).toMatchObject({ message: { text: input.text } });
 });

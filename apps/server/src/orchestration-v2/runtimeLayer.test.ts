@@ -8134,6 +8134,99 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
       }),
   );
 
+  it.effect("resumes a stopped Codex run without a prompt only as its manual continuation", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const events = yield* EventSink.EventSinkV2;
+      const threadId = ThreadId.make("promptless-resume");
+      const projectId = ProjectId.make("promptless-resume:project");
+      const now = yield* DateTime.now;
+      yield* seedProject({
+        projectId,
+        title: "Resume project",
+        workspaceRoot: process.cwd(),
+        defaultModelSelection: modelSelection,
+        createdAt: DateTime.formatIso(now),
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("promptless-resume:create"),
+        threadId,
+        projectId,
+        title: "Stopped thread",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("promptless-resume:start"),
+        threadId,
+        messageId: MessageId.make("promptless-resume:start"),
+        text: "Start work.",
+        attachments: [],
+        dispatchMode: { type: "defer_start" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const [source] = (yield* orchestrator.getThreadProjection(threadId)).runs as [
+        OrchestrationV2Run,
+      ];
+      yield* events.write({
+        events: [
+          {
+            id: EventId.make("promptless-resume:stop"),
+            type: "run.updated",
+            threadId,
+            occurredAt: now,
+            payload: { ...source, status: "interrupted", completedAt: now },
+          },
+        ],
+      });
+      const dispatchEmpty = (suffix: string, extra: object) =>
+        orchestrator
+          .dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(`promptless-resume:${suffix}`),
+            threadId,
+            messageId: MessageId.make(`promptless-resume:${suffix}`),
+            text: "",
+            attachments: [],
+            dispatchMode: { type: "start_immediately" },
+            createdBy: "user",
+            creationSource: "web",
+            ...extra,
+          })
+          .pipe(Effect.exit);
+
+      assert.equal((yield* dispatchEmpty("plain", {}))._tag, "Failure");
+      assert.equal(
+        (yield* dispatchEmpty("other-instance", {
+          manualContinuationOfRunId: source.id,
+          modelSelection: { ...modelSelection, instanceId: alternateInstanceId },
+        }))._tag,
+        "Failure",
+      );
+      assert.lengthOf((yield* orchestrator.getThreadProjection(threadId)).runs, 1);
+
+      assert.equal(
+        (yield* dispatchEmpty("resume", { manualContinuationOfRunId: source.id }))._tag,
+        "Success",
+      );
+      const after = yield* orchestrator.getThreadProjection(threadId);
+      assert.lengthOf(after.runs, 2);
+      assert.equal(after.runs[1]?.status, "starting");
+      const resumeMessage = after.messages.find(
+        (message) => message.id === after.runs[1]?.userMessageId,
+      );
+      assert.equal(resumeMessage?.text, "");
+    }),
+  );
+
   it.effect.each([
     "resume",
     "queued-resume",

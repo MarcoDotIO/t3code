@@ -289,6 +289,8 @@ export const OrchestrationV2TurnCapabilities = Schema.Struct({
   activeSteeringAcceptsAttachments: Schema.optional(Schema.Boolean),
   supportsSteeringByInterruptRestart: Schema.Boolean,
   supportsQueuedMessages: Schema.Boolean,
+  // Sessions recorded before this field existed resume with a prompt.
+  supportsPromptlessContinuation: Schema.optional(Schema.Boolean),
   terminalStatusQuality: Schema.Literals(["strong", "weak", "none"]),
 });
 export type OrchestrationV2TurnCapabilities = typeof OrchestrationV2TurnCapabilities.Type;
@@ -533,6 +535,22 @@ interface CompactionMessageFields {
   readonly createdBy?: OrchestrationV2Actor | undefined;
   readonly creationSource?: OrchestrationV2CreationSource | undefined;
   readonly idleCompaction?: OrchestrationV2IdleCompaction | undefined;
+}
+
+/**
+ * A user message with no text, attachments or context resumes its run without prompting the
+ * provider, so clients show it as a resume marker rather than a message.
+ */
+export function isPromptlessMessage(message: {
+  readonly text: string;
+  readonly attachments?: ReadonlyArray<unknown> | undefined;
+  readonly context?: { readonly records: ReadonlyArray<unknown> } | undefined;
+}): boolean {
+  return (
+    message.text.trim().length === 0 &&
+    (message.attachments?.length ?? 0) === 0 &&
+    (message.context?.records.length ?? 0) === 0
+  );
 }
 
 /** A prompt that only asks the provider to compact, so its turn is the compaction itself. */
@@ -3178,6 +3196,7 @@ export const OrchestrationV2Command = Schema.Union([
     sourcePlanRef: Schema.optional(Schema.Struct({ threadId: ThreadId, planId: PlanId })),
     restartContinuationOfRunId: Schema.optional(RunId),
     usageLimitContinuationOfRunId: Schema.optional(RunId),
+    /** With empty `text`, resumes without a prompt where the provider supports it. */
     manualContinuationOfRunId: Schema.optional(RunId),
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
     deliveryIntent: Schema.optional(Schema.Literals(["auto", "steer", "restart"])),

@@ -112,6 +112,20 @@ export function threadSupportsProviderHandoff(projection: Projection | null | un
   );
 }
 
+/** The provider instance that can continue `runId` without a prompt, or null when it needs one. */
+export function promptlessResumeInstanceId(
+  projection: Projection,
+  runId: Run["id"],
+): Run["providerInstanceId"] | null {
+  const run = projection.runs.find((candidate) => candidate.id === runId);
+  const session = resolveThreadProviderSession(projection);
+  return run !== undefined &&
+    session?.providerInstanceId === run.providerInstanceId &&
+    session.capabilities.turns.supportsPromptlessContinuation === true
+    ? run.providerInstanceId
+    : null;
+}
+
 export function getUserQueuedThreadRuns(
   projection: Pick<Projection, "runs" | "messages">,
 ): ReadonlyArray<Run> {
