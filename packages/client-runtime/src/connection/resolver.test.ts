@@ -23,6 +23,7 @@ import * as ConnectionCredentialStore from "./credentialStore.ts";
 import {
   ConnectionTransientError,
   PrimaryConnectionTarget,
+  RelayConnectionTarget,
   SshConnectionTarget,
   type ConnectionTarget,
 } from "./model.ts";
@@ -62,6 +63,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   readonly primaryBearerToken?: string;
   readonly prepareSsh?: ClientCapabilities.SshEnvironmentGateway["Service"]["prepare"];
   readonly descriptorProtocolVersion?: number | null | undefined;
+  readonly descriptorUnreachable?: boolean;
 }) => {
   const profiles = new Map(
     (options?.profiles ?? []).map((profile) => [profile.connectionId, profile]),
@@ -129,20 +131,22 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 
   const layerDependencies = Layer.mergeAll(
     RpcHttp.layerRemoteHttpClient((() =>
-      Promise.resolve(
-        Response.json({
-          environmentId: ENVIRONMENT_ID,
-          label: "Compatible environment",
-          platform: { os: "linux", arch: "x64" },
-          serverVersion: "0.0.0-test",
-          ...(options?.descriptorProtocolVersion === undefined
-            ? { orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION }
-            : options.descriptorProtocolVersion === null
-              ? {}
-              : { orchestrationProtocolVersion: options.descriptorProtocolVersion }),
-          capabilities: { repositoryIdentity: true },
-        }),
-      )) satisfies typeof fetch),
+      options?.descriptorUnreachable
+        ? Promise.reject(new TypeError("Failed to fetch"))
+        : Promise.resolve(
+            Response.json({
+              environmentId: ENVIRONMENT_ID,
+              label: "Compatible environment",
+              platform: { os: "linux", arch: "x64" },
+              serverVersion: "0.0.0-test",
+              ...(options?.descriptorProtocolVersion === undefined
+                ? { orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION }
+                : options.descriptorProtocolVersion === null
+                  ? {}
+                  : { orchestrationProtocolVersion: options.descriptorProtocolVersion }),
+              capabilities: { repositoryIdentity: true },
+            }),
+          )) satisfies typeof fetch),
     Layer.succeed(
       ConnectionProfileStore.ConnectionProfileStore,
       options?.profileStore ?? profileStore,
@@ -183,6 +187,18 @@ describe("ConnectionResolver", () => {
 
       expect(error).toMatchObject({ reason: "unsupported" });
       expect(error.message).toContain("Update T3 Code on Compatible environment");
+    }),
+  );
+
+  it.effect("attributes a failed descriptor read over T3 Connect to the tunnel", () =>
+    Effect.gen(function* () {
+      const layerBroker = yield* makeDependencies({ descriptorUnreachable: true });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
+      const target = new RelayConnectionTarget({ environmentId: ENVIRONMENT_ID, label: "Relay" });
+
+      const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
+
+      expect(error).toMatchObject({ reason: "network", hop: "tunnel", via: "relay" });
     }),
   );
 

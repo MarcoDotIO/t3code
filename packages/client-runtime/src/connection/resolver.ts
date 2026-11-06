@@ -299,7 +299,13 @@ export const make = Effect.gen(function* () {
       (yield* fetchRemoteEnvironmentDescriptor({
         httpBaseUrl: prepared.httpBaseUrl,
       }).pipe(
-        Effect.mapError(mapRemoteEnvironmentError),
+        // A T3 Connect target authorizes without a descriptor, so this read goes through the tunnel.
+        Effect.mapError((error) =>
+          mapRemoteEnvironmentError(
+            error,
+            target._tag === "RelayConnectionTarget" ? "relay" : "direct",
+          ),
+        ),
         Effect.provideService(HttpClient.HttpClient, httpClient),
       ));
     if (descriptor.environmentId !== target.environmentId) {
