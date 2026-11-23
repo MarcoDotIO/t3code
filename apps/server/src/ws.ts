@@ -3,6 +3,7 @@ import { GitCommandError, OrchestrationDispatchCommandError } from "@t3tools/con
 import * as NodeCrypto from "node:crypto";
 import * as FeatureFlags from "@t3tools/shared/FeatureFlags";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import type * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequest";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -3248,8 +3249,16 @@ export const layerWsRpc = (
             }),
           ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
-          Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
-            gitWorkflow
+          Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) => {
+            const fail = (cause: Cause.Cause<GitManagerServiceError>) =>
+              Queue.failCause(queue, cause).pipe(
+                Effect.flatMap((accepted) =>
+                  accepted
+                    ? Effect.void
+                    : Effect.logWarning("Git action failed after its client left.", cause),
+                ),
+              );
+            return gitWorkflow
               .runStackedAction(input, {
                 actionId: input.actionId,
                 progressReporter: {
@@ -3260,7 +3269,7 @@ export const layerWsRpc = (
                 Effect.matchCauseEffect({
                   // Earlier steps (branch, commit) may have landed before the failing one.
                   onFailure: (cause) =>
-                    refreshGitStatus(input.cwd).pipe(Effect.andThen(Queue.failCause(queue, cause))),
+                    refreshGitStatus(input.cwd).pipe(Effect.andThen(fail(cause))),
                   onSuccess: (result) =>
                     (input.threadId === undefined
                       ? Effect.void
@@ -3292,8 +3301,12 @@ export const layerWsRpc = (
                       Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
                     ),
                 }),
-              ),
-          ),
+                // Killing a commit hook, push or PR step partway leaves the work half done, so the
+                // action outlives a client that drops. Detached, a defect must still end the stream.
+                Effect.catchCause(fail),
+                Effect.forkDetach,
+              );
+          }),
         [WS_METHODS.gitResolvePullRequest]: (input) => gitWorkflow.resolvePullRequest(input),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           (input.mode === "local"
