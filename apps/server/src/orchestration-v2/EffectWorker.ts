@@ -757,8 +757,8 @@ export class OrchestrationEffectWorkerError extends Schema.TaggedError<Orchestra
 
 const isOrchestrationEffectWorkerError = Schema.is(OrchestrationEffectWorkerError);
 
-// Only the claiming worker settles its row, and a running row blocks later effects on its thread
-// until the server restarts. onError masks interruption, so retries must restore it.
+// Only the claiming worker settles its row, and a running row blocks most later effects on its
+// thread until the server restarts. onError masks interruption, so retries must restore it.
 const isLockTimeout = (error: EffectOutbox.EffectOutboxError) =>
   SqlError.isSqlError(error.cause) && error.cause.reason._tag === "LockTimeoutError";
 const lockRetrySchedule = Schedule.spaced(Duration.millis(100));
