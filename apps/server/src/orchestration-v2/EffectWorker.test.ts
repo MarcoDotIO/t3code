@@ -3,6 +3,7 @@ import {
   CheckpointId,
   CheckpointScopeId,
   CommandId,
+  MessageId,
   NodeId,
   ProjectId,
   ProviderInstanceId,
@@ -669,6 +670,76 @@ it.effect("terminalizes a process-bound claim when success settlement fails", ()
     assert.isDefined(terminalError);
     assert.include(terminalError, "after execution started");
     assert.include(terminalError, "simulated success settlement failure");
+  }),
+);
+
+it.effect("settles a steer whose turn ended without retrying it", () =>
+  Effect.gen(function* () {
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const workerId = "worker-ended-steer";
+    const claimedEffect: EffectOutbox.OrchestrationEffectV2 = {
+      id: "effect:worker-ended-steer",
+      commandId: CommandId.make("command:worker-ended-steer"),
+      threadId,
+      request: {
+        type: "provider-turn.steer",
+        providerSessionId: oldSessionId,
+        providerThreadId,
+        providerTurnId,
+        messageId: MessageId.make("message:worker-ended-steer"),
+      },
+      status: "running",
+      attemptCount: 1,
+      availableAt: now,
+      leaseOwner: workerId,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+      lastError: null,
+    };
+    const settlements = yield* Ref.make<ReadonlyArray<string>>([]);
+    const settle = (kind: string) =>
+      Ref.update(settlements, (existing) => [...existing, kind]).pipe(Effect.as(true));
+    const layerOutbox = Layer.mock(EffectOutbox.EffectOutboxV2)({
+      claimNext: () => Effect.succeedSome(claimedEffect),
+      get: () => Effect.succeedSome(claimedEffect),
+      awaitCancellation: () => Effect.never,
+      clearCancellation: () => Effect.void,
+      succeed: () => settle("succeed"),
+      retry: () => settle("retry"),
+      fail: () => settle("fail"),
+    });
+    // Stop interrupted the turn before the steer reached it.
+    const layerExecutor = Layer.succeed(
+      EffectWorker.OrchestrationEffectExecutorV2,
+      EffectWorker.OrchestrationEffectExecutorV2.of({
+        execute: (effect) =>
+          Effect.fail(
+            new EffectWorker.OrchestrationEffectExecutionError({
+              effectId: effect.id,
+              effectType: effect.request.type,
+              cause: new ProviderTurnControlService.ProviderTurnControlError({
+                threadId,
+                operation: "steer",
+                providerTurnId,
+                turnCompleted: false,
+                cause: "The provider turn ended before the steering message was delivered.",
+              }),
+            }),
+          ),
+      }),
+    );
+    const layerWorker = EffectWorker.layerWithOptions({ workerId }).pipe(
+      Layer.provide(Layer.merge(layerOutbox, layerExecutor)),
+    );
+
+    yield* EffectWorker.OrchestrationEffectWorkerV2.pipe(
+      Effect.flatMap((worker) => worker.runOnce()),
+      Effect.provide(layerWorker),
+    );
+
+    // A failed row would also keep a deleted thread's worktree.
+    assert.deepEqual(yield* Ref.get(settlements), ["succeed"]);
   }),
 );
 

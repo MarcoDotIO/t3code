@@ -21,6 +21,7 @@ import {
   ProviderInstanceId,
   ProviderSessionId,
   ProviderThreadId,
+  ProviderTurnId,
   RunAttemptId,
   RunId,
   ThreadId,
@@ -3196,6 +3197,61 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       assert.equal(Option.getOrUndefined(unblocked)?.id, "effect:foundation-retry-order:a-start");
       yield* outbox.succeed({ effectId: "effect:foundation-retry-order:a-start", workerId });
       yield* outbox.succeed({ effectId: "effect:foundation-retry-order:b-title", workerId });
+    }).pipe(Effect.provide(Layer.fresh(layerEffectOutboxProvided))),
+  );
+
+  it.effect("claims a Stop's interrupt while a steer waits for the agent to read it", () =>
+    Effect.gen(function* () {
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const workerId = "steer-stop-worker";
+      const threadId = ThreadId.make("thread:foundation-steer-stop");
+      const target = {
+        providerSessionId: ProviderSessionId.make("provider-session:foundation-steer-stop"),
+        providerThreadId: ProviderThreadId.make("provider-thread:foundation-steer-stop"),
+        providerTurnId: ProviderTurnId.make("provider-turn:foundation-steer-stop"),
+      };
+      const effect = (
+        id: string,
+        request: EffectOutbox.PendingOrchestrationEffectV2["request"],
+      ): EffectOutbox.PendingOrchestrationEffectV2 => ({
+        id: `effect:foundation-steer-stop:${id}`,
+        commandId: CommandId.make(`command:foundation-steer-stop:${id}`),
+        threadId,
+        request,
+      });
+      const steer = (id: string) =>
+        effect(id, {
+          type: "provider-turn.steer",
+          ...target,
+          messageId: MessageId.make(`message:foundation-steer-stop:${id}`),
+        });
+      const claim = outbox
+        .claimNext({ workerId })
+        .pipe(Effect.map((claimed) => Option.getOrUndefined(claimed)?.id));
+      const succeed = (id: string) =>
+        outbox.succeed({ effectId: `effect:foundation-steer-stop:${id}`, workerId });
+
+      yield* outbox.enqueue([steer("a-steer")]);
+      assert.equal(yield* claim, "effect:foundation-steer-stop:a-steer");
+      // Work sent while the steer waits queues behind it.
+      yield* outbox.enqueue([
+        steer("b-steer"),
+        effect("c-title", { type: "provider-session.apply-thread-title", title: "Renamed" }),
+        effect("d-interrupt", { type: "provider-turn.interrupt", ...target }),
+        effect("e-start", { type: "provider-turn.start", runId: RunId.make("run:steer-stop") }),
+      ]);
+      assert.equal(
+        yield* claim,
+        "effect:foundation-steer-stop:d-interrupt",
+        "Stop waited behind a steer the agent had not read",
+      );
+      yield* succeed("d-interrupt");
+      assert.isUndefined(yield* claim, "only a Stop may pass the waiting steer");
+      yield* succeed("a-steer");
+      for (const id of ["b-steer", "c-title", "e-start"]) {
+        assert.equal(yield* claim, `effect:foundation-steer-stop:${id}`);
+        yield* succeed(id);
+      }
     }).pipe(Effect.provide(Layer.fresh(layerEffectOutboxProvided))),
   );
 

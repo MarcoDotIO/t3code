@@ -53,6 +53,10 @@ const isOrchestrationEffectExecutionError = Schema.is(OrchestrationEffectExecuti
  * replacement turn.
  */
 function isNonRetryableProviderTurnControlFailure(effectType: string, errorText: string): boolean {
+  // A failed row on a deleted thread keeps its worktree, and a steer cannot reach an ended turn.
+  if (effectType === "provider-turn.steer") {
+    return /provider turn ended before the steering message was delivered/i.test(errorText);
+  }
   if (effectType !== "provider-turn.interrupt") {
     return false;
   }
@@ -753,8 +757,8 @@ export class OrchestrationEffectWorkerError extends Schema.TaggedError<Orchestra
 
 const isOrchestrationEffectWorkerError = Schema.is(OrchestrationEffectWorkerError);
 
-// Only the claiming worker settles its row, and a running row blocks every later effect on its
-// thread until the server restarts. onError masks interruption, so retries must restore it.
+// Only the claiming worker settles its row, and a running row blocks later effects on its thread
+// until the server restarts. onError masks interruption, so retries must restore it.
 const isLockTimeout = (error: EffectOutbox.EffectOutboxError) =>
   SqlError.isSqlError(error.cause) && error.cause.reason._tag === "LockTimeoutError";
 const lockRetrySchedule = Schedule.spaced(Duration.millis(100));

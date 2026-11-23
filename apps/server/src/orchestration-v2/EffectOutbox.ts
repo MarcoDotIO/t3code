@@ -340,6 +340,8 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
         Array.from({ length: Math.min(64, Math.max(0, Math.floor(count))) }, () => undefined),
       ).pipe(Effect.asVoid);
     // Retry backoff must block later effects so turns cannot race a pending rollback.
+    // A steer can wait for the agent's current step to end, so a Stop's interrupt does not wait for
+    // it or for the work queued behind it.
     const claimableCandidatePredicate = (
       availableBefore?: string,
       excludeRestartContinuations = false,
@@ -357,7 +359,13 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
           FROM orchestration_v2_effect_outbox AS active
           WHERE active.thread_id = candidate.thread_id
             AND (
-              active.status = 'running'
+              (
+                active.status = 'running'
+                AND NOT (
+                  candidate.effect_type = 'provider-turn.interrupt'
+                  AND active.effect_type = 'provider-turn.steer'
+                )
+              )
               OR (
                 active.status = 'pending'
                 AND active.rowid < candidate.rowid
@@ -366,6 +374,17 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
                     ? sql`active.effect_type != 'provider-runtime.continue'`
                     : sql`1 = 1`
                 }
+                AND NOT (
+                  candidate.effect_type = 'provider-turn.interrupt'
+                  AND active.effect_type != 'provider-turn.interrupt'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM orchestration_v2_effect_outbox AS steer
+                    WHERE steer.thread_id = candidate.thread_id
+                      AND steer.status = 'running'
+                      AND steer.effect_type = 'provider-turn.steer'
+                  )
+                )
               )
             )
             AND (
