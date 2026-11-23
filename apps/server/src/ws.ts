@@ -3293,6 +3293,13 @@ export const layerWsRpc = (
                     ),
                 }),
               ),
+          ).pipe(
+            // A feature branch is checked out in place, so it moves every thread in the checkout.
+            Stream.onStart(
+              input.featureBranch
+                ? assertCheckoutIdle("GitWorkflowService.runStackedAction", input.cwd)
+                : Effect.void,
+            ),
           ),
         [WS_METHODS.gitResolvePullRequest]: (input) => gitWorkflow.resolvePullRequest(input),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>

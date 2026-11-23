@@ -19,6 +19,7 @@ import {
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   EnvironmentId,
   EventId,
+  GitCommandError,
   GitManagerError,
   VcsProcessSpawnError,
   MessageId,
@@ -1996,6 +1997,111 @@ it.effect("a git action that fails partway still refreshes the repository status
     const exit = yield* Queue.take(exits);
     assert.deepEqual(Exit.isFailure(exit) ? Cause.squash(exit.cause) : exit, failure);
     assert.equal(yield* Deferred.await(refreshed), "/repo");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        Layer.fresh(layerConfigSources),
+        Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
+        Layer.mock(ServerBrowser.ServerBrowser)({}),
+      ),
+    ),
+  ),
+);
+
+it.effect("a new-branch commit is refused while another thread works in the checkout", () =>
+  Effect.gen(function* () {
+    const ran = new GitManagerError({ operation: "test", cwd: "/repo", detail: "ran" });
+    const exits = yield* Queue.unbounded<Exit.Exit<unknown, unknown>>();
+    const projectId = ProjectId.make("project");
+    const started: Array<boolean> = [];
+    const services = Layer.mergeAll(
+      layerUnusedConfigRpcServices,
+      Layer.mock(GitWorkflowService.GitWorkflowService)({
+        repositoryRoot: () => Effect.succeed("/repo"),
+        runStackedAction: (input) =>
+          Effect.sync(() => started.push(input.featureBranch === true)).pipe(
+            Effect.andThen(Effect.fail(ran)),
+          ),
+      }),
+      Layer.mock(ProjectService.ProjectService)({
+        snapshot: Effect.succeed({
+          projects: [{ id: projectId, workspaceRoot: "/repo" }],
+        } as never),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getShellSnapshot: (options) =>
+          Effect.succeed({
+            threads:
+              options?.projectId === projectId
+                ? [
+                    {
+                      id: ThreadId.make("busy"),
+                      title: "Busy thread",
+                      projectId,
+                      worktreePath: null,
+                      activityRunStatus: "running",
+                    },
+                  ]
+                : [],
+            archivedThreads: [],
+          } as never),
+      }),
+      Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
+        refreshStatus: () => Effect.succeed({} as never),
+      }),
+      Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+      Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+      Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
+      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(ServerEnvironment.ServerEnvironment)({}),
+      Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+    );
+    const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
+      ...WS_RPC_SERVER_OPTIONS,
+      onFromServer: (response) =>
+        response._tag === "Exit" ? Queue.offer(exits, response.exit) : Effect.void,
+    }).pipe(
+      Effect.provide(
+        layerWsRpc(
+          {
+            sessionId: AuthSessionId.make("guard-test"),
+            subject: "guard-test",
+            method: "browser-session-cookie",
+            scopes: [AuthSourceControlWriteScope],
+          },
+          {},
+          yield* ServerBrowser.ServerBrowser,
+          () => Effect.void,
+          { secretReferences: true },
+        ).pipe(
+          Layer.provide(services),
+          Layer.merge(RpcAuthorization.layer([AuthSourceControlWriteScope])),
+        ),
+      ),
+    );
+    const failureOf = (featureBranch: boolean) =>
+      server
+        .write(0, {
+          _tag: "Request",
+          id: RpcMessage.RequestId(`git-${featureBranch}`),
+          tag: WS_METHODS.gitRunStackedAction,
+          payload: { actionId: "action", cwd: "/repo", action: "commit", featureBranch },
+          headers: Headers.empty,
+        })
+        .pipe(
+          Effect.andThen(Queue.take(exits)),
+          Effect.map((exit) => (Exit.isFailure(exit) ? Cause.squash(exit.cause) : exit)),
+        );
+
+    const refused = yield* failureOf(true);
+    assert.instanceOf(refused, GitCommandError);
+    assert.include(refused.detail, "'Busy thread' is still working in this checkout");
+    // A commit on the checked-out branch leaves the busy thread's branch alone.
+    assert.deepEqual(yield* failureOf(false), ran);
+    assert.deepEqual(started, [false]);
   }).pipe(
     Effect.provide(
       Layer.mergeAll(
